@@ -72,6 +72,132 @@ All services use host networking mode (`network_mode: host`) for development con
 - Keystone Fernet keys are persisted in the `keystone_fernet` volume
 - Keystone logs are stored in the `./keystone-logs` directory
 
+## Building and Installing Barbican on RHEL9
+
+Once the supporting services are running, you can build and install Barbican from source:
+
+### Prerequisites for Barbican Development
+
+1. Install Python development tools:
+```bash
+sudo dnf install python3-devel python3-pip git gcc
+```
+
+2. Install additional system dependencies:
+```bash
+sudo dnf install libffi-devel openssl-devel sqlite-devel
+```
+
+### Building Barbican from Source
+
+1. Clone the Barbican repository:
+```bash
+git clone https://github.com/openstack/barbican.git
+cd barbican
+```
+
+2. Create a Python virtual environment:
+```bash
+python3 -m venv barbican-venv
+source barbican-venv/bin/activate
+```
+
+3. Upgrade pip and install dependencies:
+```bash
+pip install --upgrade pip setuptools wheel
+pip install -r requirements.txt
+pip install -r test-requirements.txt
+```
+
+4. Install Barbican in development mode:
+```bash
+pip install -e .
+```
+
+### Configuring Barbican
+
+1. Create the configuration directory:
+```bash
+sudo mkdir -p /etc/barbican
+sudo chown $(whoami):$(whoami) /etc/barbican
+```
+
+2. Copy sample configuration files:
+```bash
+cp etc/barbican/barbican.conf.sample /etc/barbican/barbican.conf
+cp etc/barbican/barbican-api-paste.ini /etc/barbican/
+```
+
+3. Edit `/etc/barbican/barbican.conf` to configure database and Keystone:
+```ini
+[DEFAULT]
+sql_connection = postgresql://barbican:barbican@localhost:5432/barbican
+transport_url = rabbit://guest:guest@localhost:5672/
+
+[keystone_authtoken]
+auth_url = http://localhost:5000/v3
+www_authenticate_uri = http://localhost:5000/v3
+auth_type = password
+project_domain_id = default
+user_domain_id = default
+project_name = service
+username = barbican
+password = barbican
+memcached_servers = localhost:11211
+
+[keystone_notifications]
+enable = True
+```
+
+### Running Barbican in Debug Mode
+
+1. Ensure the supporting services are running:
+```bash
+podman-compose up -d
+```
+
+2. Initialize the Barbican database:
+```bash
+source barbican-venv/bin/activate
+barbican-db-manage upgrade
+```
+
+3. Start Barbican in debug mode:
+```bash
+# Start the API server in debug mode
+barbican-api --debug --config-file=/etc/barbican/barbican.conf
+
+# Or use uwsgi for development (in another terminal)
+uwsgi --http :9311 --wsgi-file barbican/api/app.py --callable application --enable-threads
+```
+
+4. Start the worker process (in another terminal):
+```bash
+source barbican-venv/bin/activate
+barbican-worker --debug --config-file=/etc/barbican/barbican.conf
+```
+
+### Verifying Barbican Installation
+
+1. Test the API endpoint:
+```bash
+curl http://localhost:9311/v1/secrets
+```
+
+2. Use the Barbican client:
+```bash
+pip install python-barbicanclient
+export OS_AUTH_URL=http://localhost:5000/v3
+export OS_USERNAME=admin
+export OS_PASSWORD=admin123
+export OS_PROJECT_NAME=admin
+export OS_USER_DOMAIN_NAME=Default
+export OS_PROJECT_DOMAIN_NAME=Default
+export OS_IDENTITY_API_VERSION=3
+
+barbican secret store --payload="my secret data"
+```
+
 ## Development Usage
 
 After starting the services, you can:

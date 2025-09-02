@@ -132,7 +132,6 @@ cp etc/barbican/barbican-api-paste.ini /etc/barbican/
 ```ini
 [DEFAULT]
 sql_connection = postgresql://barbican:barbican@localhost:5432/barbican
-transport_url = rabbit://guest:guest@localhost:5672/
 
 [keystone_authtoken]
 auth_url = http://localhost:5000/v3

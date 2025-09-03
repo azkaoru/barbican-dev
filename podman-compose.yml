@@ -1,7 +1,8 @@
 version: '3.8'
 
 services:
-  postgres:
+  # Rename postgres to db to match the sample configuration
+  db:
     image: registry.redhat.io/rhel9/postgresql-15:latest
     container_name: barbican_postgres
     #network_mode: host
@@ -24,7 +25,7 @@ services:
     container_name: barbican_postgres_init
     #network_mode: host
     depends_on:
-      postgres:
+      db:
         condition: service_healthy
     environment:
       POSTGRESQL_USER: barbican
@@ -72,120 +73,50 @@ services:
     ports:
       - "11211:11211"
 
-  keystone:
-    image: registry.redhat.io/ubi9/ubi:latest
-    container_name: barbican_keystone
-    #network_mode: host
+  # Keystone database synchronization one-shot container
+  keystone-db-sync:
+    image: registry.redhat.io/rhosp-rhel9/openstack-keystone:16.2
+    container_name: keystone_db_sync
+    command: ["keystone-manage", "db_sync"]
+    volumes:
+      - ./config/keystone.conf:/etc/keystone/keystone.conf:ro
+    environment:
+      - OS_DB_CONNECTION=postgresql+psycopg2://keystone:keystone@db/keystone
     depends_on:
-      postgres:
+      db:
         condition: service_healthy
       postgres-init:
         condition: service_completed_successfully
-      memcached:
-        condition: service_healthy
-    environment:
-      # Database configuration
-      DATABASE_URL: postgresql://keystone:keystone@barbican_postgres:5432/keystone
-      # Keystone configuration
-      ADMIN_TOKEN: devstacker
-      ADMIN_PASSWORD: admin123
-      SERVICE_PASSWORD: service123
-      # Cache configuration
-      CACHE_BACKEND: oslo_cache.memcache_pool
-      CACHE_MEMCACHE_SERVERS: barbican_memcached:11211
+    restart: "no"
+    
+  # Keystone API hosted by Apache service
+  keystone_apache:
+    image: httpd:2.4-alpine
+    container_name: openstack_keystone_api
+    ports:
+      - "5000:5000"
+      - "35357:35357"
     volumes:
-      - ./keystone-config:/etc/keystone
-      - ./keystone-logs:/var/log/keystone
-      - keystone_fernet:/etc/keystone/fernet-keys
+      # Keystone WSGI configuration for Apache
+      - ./config/wsgi-keystone.conf:/usr/local/apache2/conf/extra/wsgi-keystone.conf:ro
+      # Keystone configuration file
+      - ./config/keystone.conf:/etc/keystone/keystone.conf:ro
     command:
-      - /bin/bash
+      - /bin/sh
       - -c
       - |
-        # Install required packages
-        dnf update -y
-        dnf install -y python3 python3-pip httpd python3-mod_wsgi postgresql-devel gcc python3-devel
-        
-        # Install OpenStack Keystone
-        pip3 install --upgrade pip
-        pip3 install keystone python-keystoneclient psycopg2-binary pymemcache
-        
-        # Create keystone user and directories
-        useradd -r -s /bin/false keystone || true
-        mkdir -p /etc/keystone /var/log/keystone /var/lib/keystone
-        chown -R keystone:keystone /etc/keystone /var/log/keystone /var/lib/keystone
-        
-        # Generate Fernet keys
-        keystone-manage fernet_setup --keystone-user keystone --keystone-group keystone
-        keystone-manage credential_setup --keystone-user keystone --keystone-group keystone
-        
-        # Configure Apache for Keystone
-        cat > /etc/httpd/conf.d/wsgi-keystone.conf << 'EOF'
-        Listen 5000
-        Listen 35357
-
-        <VirtualHost *:5000>
-            WSGIDaemonProcess keystone-public processes=5 threads=1 user=keystone group=keystone display-name=%{GROUP}
-            WSGIProcessGroup keystone-public
-            WSGIScriptAlias / /usr/local/bin/keystone-wsgi-public
-            WSGIApplicationGroup %{GLOBAL}
-            WSGIPassAuthorization On
-            ErrorLogFormat "%{cu}t %M"
-            ErrorLog /var/log/keystone/keystone.log
-            CustomLog /var/log/keystone/keystone_access.log combined
-
-            <Directory /usr/local/bin>
-                WSGIProcessGroup keystone-public
-                WSGIApplicationGroup %{GLOBAL}
-                Require all granted
-            </Directory>
-        </VirtualHost>
-
-        <VirtualHost *:35357>
-            WSGIDaemonProcess keystone-admin processes=5 threads=1 user=keystone group=keystone display-name=%{GROUP}
-            WSGIProcessGroup keystone-admin
-            WSGIScriptAlias / /usr/local/bin/keystone-wsgi-admin
-            WSGIApplicationGroup %{GLOBAL}
-            WSGIPassAuthorization On
-            ErrorLogFormat "%{cu}t %M"
-            ErrorLog /var/log/keystone/keystone.log
-            CustomLog /var/log/keystone/keystone_access.log combined
-
-            <Directory /usr/local/bin>
-                WSGIProcessGroup keystone-admin
-                WSGIApplicationGroup %{GLOBAL}
-                Require all granted
-            </Directory>
-        </VirtualHost>
-        EOF
-        
-        # Wait for database to be ready
-        #while ! pg_isready -h localhost -p 5432 -U barbican; do
-        #  echo 'Waiting for PostgreSQL...'
-        #  sleep 5
-        #done
-        
-        # Database and user should already be created by postgres-init service
-        # Initialize Keystone database
-        keystone-manage db_sync
-        
-        # Bootstrap Keystone
-        keystone-manage bootstrap --bootstrap-password admin123 \
-          --bootstrap-admin-url http://barbican_keystone:35357/v3/ \
-          --bootstrap-internal-url http://barbican_keystone:5000/v3/ \
-          --bootstrap-public-url http://barbican_keystone:5000/v3/ \
-          --bootstrap-region-id RegionOne
-        
+        # Include the Keystone WSGI configuration
+        echo "Include conf/extra/wsgi-keystone.conf" >> /usr/local/apache2/conf/httpd.conf
         # Start Apache
-        /usr/sbin/httpd -D FOREGROUND
+        httpd-foreground
+    depends_on:
+      keystone-db-sync:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+      memcached:
+        condition: service_started
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://barbican_keystone:5000/v3 || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-    ports:
-      - "35357:35357"
-      - "5000:5000"
 
 volumes:
   postgres_data:

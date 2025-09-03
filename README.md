@@ -4,9 +4,9 @@ This repository provides a podman-compose configuration for setting up a Barbica
 
 ## Prerequisites
 
-- RHEL9 system
+- RHEL9 or compatible system (Rocky Linux 9.5 or equivalent)
 - Podman and podman-compose installed
-- Access to Red Hat Container Registry (registry.redhat.io)
+- Internet access for downloading Rocky Linux containers and OpenStack repositories
 
 ## Services
 

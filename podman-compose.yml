@@ -75,9 +75,18 @@ services:
 
   # Keystone database synchronization one-shot container
   keystone-db-sync:
-    image: registry.redhat.io/rhosp-rhel9/openstack-keystone:16.2
+    image: rockylinux/rockylinux:9.5
     container_name: keystone_db_sync
-    command: ["keystone-manage", "db_sync"]
+    command:
+      - /bin/bash
+      - -c
+      - |
+        # Install OpenStack repository
+        dnf install -y centos-release-openstack-epoxy
+        # Install keystone
+        dnf install -y openstack-keystone python3-keystonemiddleware
+        # Run database sync
+        keystone-manage db_sync
     volumes:
       - ./config/keystone.conf:/etc/keystone/keystone.conf:ro
     environment:

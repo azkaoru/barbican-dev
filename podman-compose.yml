@@ -86,7 +86,7 @@ services:
         # Install OpenStack repository
         dnf install -y centos-release-openstack-epoxy
         # Install keystone packages
-        dnf install -y openstack-keystone python3-keystonemiddleware
+        dnf install -y openstack-keystone python3-keystonemiddleware python3-mod_wsgi python3-openstackclient python3-psycopg2
         # Run database sync
         keystone-manage db_sync
     volumes:

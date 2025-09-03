@@ -49,7 +49,7 @@ services:
         #    bash "$script"
         #  fi
         #done
-        sleep 300 
+        #sleep 300 
         echo "Database initialization completed"
     restart: "no"
     ports:
@@ -73,10 +73,10 @@ services:
     ports:
       - "11211:11211"
 
-  # Keystone database synchronization one-shot container
-  keystone-db-sync:
-    image: rockylinux/rockylinux:9.5
-    container_name: keystone_db_sync
+  keystone:
+    #image: registry.redhat.io/ubi9/ubi:latest
+    image: docker.io/rockylinux/rockylinux:9.6-ubi
+    container_name: barbican_keystone
     command:
       - /bin/bash
       - -c
@@ -87,48 +87,117 @@ services:
         dnf install -y centos-release-openstack-epoxy
         # Install keystone packages
         dnf install -y openstack-keystone python3-keystonemiddleware python3-mod_wsgi python3-openstackclient python3-psycopg2
-        # Run database sync
+
+        useradd -r -s /bin/false keystone || true
+        mkdir -p /etc/keystone /var/log/keystone /var/lib/keystone
+        chown -R keystone:keystone /etc/keystone /var/log/keystone /var/lib/keystone
+        
+        # Generate Fernet keys
+        keystone-manage fernet_setup --keystone-user keystone --keystone-group keystone
+        keystone-manage credential_setup --keystone-user keystone --keystone-group keystone
+        
+        # Configure Apache for Keystone
+        cat > /etc/httpd/conf.d/wsgi-keystone.conf << 'EOF'
+        Listen 5000
+        Listen 35357
+
+        <VirtualHost *:5000>
+            WSGIDaemonProcess keystone-public processes=5 threads=1 user=keystone group=keystone display-name=%{GROUP}
+            WSGIProcessGroup keystone-public
+            WSGIScriptAlias / /usr/bin/keystone-wsgi-public
+            WSGIApplicationGroup %{GLOBAL}
+            WSGIPassAuthorization On
+            ErrorLogFormat "%{cu}t %M"
+            ErrorLog /var/log/keystone/keystone.log
+            CustomLog /var/log/keystone/keystone_access.log combined
+
+            <Directory /usr/bin>
+                WSGIProcessGroup keystone-public
+                WSGIApplicationGroup %{GLOBAL}
+                Require all granted
+            </Directory>
+        </VirtualHost>
+
+        <VirtualHost *:35357>
+            WSGIDaemonProcess keystone-admin processes=5 threads=1 user=keystone group=keystone display-name=%{GROUP}
+            WSGIProcessGroup keystone-admin
+            WSGIScriptAlias / /usr/bin/keystone-wsgi-admin
+            WSGIApplicationGroup %{GLOBAL}
+            WSGIPassAuthorization On
+            ErrorLogFormat "%{cu}t %M"
+            ErrorLog /var/log/keystone/keystone.log
+            CustomLog /var/log/keystone/keystone_access.log combined
+
+            <Directory /usr/bin>
+                WSGIProcessGroup keystone-admin
+                WSGIApplicationGroup %{GLOBAL}
+                Require all granted
+            </Directory>
+        </VirtualHost>
+        EOF
+        
+        # Wait for database to be ready
+        
+        # Initialize Keystone database
         keystone-manage db_sync
+        
+        # Bootstrap Keystone
+        keystone-manage bootstrap --bootstrap-password admin123 \
+          --bootstrap-admin-url http://barbican_keystone:35357/v3/ \
+          --bootstrap-internal-url http://barbican_keystone:5000/v3/ \
+          --bootstrap-public-url http://barbican_keystone:5000/v3/ \
+          --bootstrap-region-id RegionOne
+        
+        # Start Apache
+        /usr/sbin/httpd -D FOREGROUND
     volumes:
       - ./config/keystone.conf:/etc/keystone/keystone.conf:ro
     environment:
-      - OS_DB_CONNECTION=postgresql+psycopg2://keystone:keystone@db/keystone
+      - OS_DB_CONNECTION=postgresql+psycopg2://keystone:keystone@barbican_postgres/keystone
     depends_on:
       db:
         condition: service_healthy
       postgres-init:
         condition: service_completed_successfully
-    restart: "no"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://barbican_keystone:5000/v3 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5 
+    ports:
+      - "35357:35357"
+      - "5000:5000"
     
   # Keystone API hosted by Apache service
-  keystone_apache:
-    image: httpd:2.4-alpine
-    container_name: openstack_keystone_api
-    ports:
-      - "5000:5000"
-      - "35357:35357"
-    volumes:
-      # Keystone WSGI configuration for Apache
-      - ./config/wsgi-keystone.conf:/usr/local/apache2/conf/extra/wsgi-keystone.conf:ro
-      # Keystone configuration file
-      - ./config/keystone.conf:/etc/keystone/keystone.conf:ro
-    command:
-      - /bin/sh
-      - -c
-      - |
-        # Include the Keystone WSGI configuration
-        echo "Include conf/extra/wsgi-keystone.conf" >> /usr/local/apache2/conf/httpd.conf
-        # Start Apache
-        httpd-foreground
-    depends_on:
-      keystone-db-sync:
-        condition: service_completed_successfully
-      db:
-        condition: service_healthy
-      memcached:
-        condition: service_started
-    restart: unless-stopped
+  # keystone_apache:
+  #   image: httpd:2.4-alpine
+  #   container_name: openstack_keystone_api
+  #   ports:
+  #     - "5000:5000"
+  #     - "35357:35357"
+  #   volumes:
+  #     # Keystone WSGI configuration for Apache
+  #     - ./config/wsgi-keystone.conf:/usr/local/apache2/conf/extra/wsgi-keystone.conf:ro
+  #     # Keystone configuration file
+  #     - ./config/keystone.conf:/etc/keystone/keystone.conf:ro
+  #   command:
+  #     - /bin/sh
+  #     - -c
+  #     - |
+  #       # Include the Keystone WSGI configuration
+  #       echo "Include conf/extra/wsgi-keystone.conf" >> /usr/local/apache2/conf/httpd.conf
+  #       # Start Apache
+  #       httpd-foreground
+  #   depends_on:
+  #     keystone-db-sync:
+  #       condition: service_completed_successfully
+  #     db:
+  #       condition: service_healthy
+  #     memcached:
+  #       condition: service_started
+  #   restart: unless-stopped
 
 volumes:
   postgres_data:
-  keystone_fernet:
+  #keystone_fernet:

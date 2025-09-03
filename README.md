@@ -368,12 +368,21 @@ A demo script `create-key-manager-endpoints.sh` is provided that shows all the c
 ./create-key-manager-endpoints.sh
 ```
 
-### Notes
+### Important Notes about Port Configuration
 
-- The default Barbican port is `9311`
+- **Port 9311**: This is the default port for Barbican API service
+- **No Port Conflicts**: The current setup only runs Keystone (ports 5000, 35357), PostgreSQL (5432), and Memcached (11211). Port 9311 is available for Barbican.
+- **Endpoint URLs Must Match Barbican Location**: The endpoint URLs you create must point to where Barbican is actually running:
+  - If Barbican runs on `localhost:9311`, use `http://localhost:9311` in endpoints
+  - If Barbican runs on a VIP at `192.168.1.100:9311`, use `http://192.168.1.100:9311` in endpoints
+  - If Barbican runs on a different port, update the endpoints accordingly
+
+### Additional Notes
+
 - The region name is set to `RegionOne` as configured in the Keystone bootstrap
 - VIP endpoints allow for high availability and load balancing of the key-manager service
 - Ensure your VIP is properly configured and that Barbican is running on all nodes behind the VIP
+- For development, you can run Barbican locally using the installation instructions above
 
 ## Stopping Services
 

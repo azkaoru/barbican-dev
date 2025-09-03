@@ -4,7 +4,7 @@ services:
   postgres:
     image: registry.redhat.io/rhel9/postgresql-15:latest
     container_name: barbican_postgres
-    network_mode: host
+    #network_mode: host
     environment:
       POSTGRESQL_USER: barbican
       POSTGRESQL_PASSWORD: barbican
@@ -22,7 +22,7 @@ services:
   postgres-init:
     image: registry.redhat.io/rhel9/postgresql-15:latest
     container_name: barbican_postgres_init
-    network_mode: host
+    #network_mode: host
     depends_on:
       postgres:
         condition: service_healthy
@@ -39,25 +39,24 @@ services:
       - -c
       - |
         echo "Starting database initialization..."
-        
-        
         echo "PostgreSQL is ready, running initialization scripts..."
-        
-        # Run all scripts in the scripts directory
-        for script in /scripts/*.sh; do
-          if [ -f "$script" ]; then
-            echo "Executing: $script"
-            bash "$script"
-          fi
-        done
-        
+        psql -h barbican_postgres -U postgres  postgres -f /scripts/init.sql      
+        # Run all scripts i the scripts directory
+        #for script in /scripts/*.sh; do
+        #  if [ -f "$script" ]; then
+        #    echo "Executing: $script"
+        #    bash "$script"
+        #  fi
+        #done
+        sleep 300 
         echo "Database initialization completed"
     restart: "no"
+    ports:
+      - "5432:5432"
 
   memcached:
     image: registry.redhat.io/ubi9/ubi:latest
     container_name: barbican_memcached
-    network_mode: host
     command:
       - /bin/bash
       - -c
@@ -66,15 +65,17 @@ services:
         memcached -u memcached -p 11211 -m 64 -c 1024 -v
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "echo stats | nc localhost 11211"]
+      test: ["CMD-SHELL", "echo stats | nc barbican_memcached 11211"]
       interval: 10s
       timeout: 5s
       retries: 5
+    ports:
+      - "11211:11211"
 
   keystone:
     image: registry.redhat.io/ubi9/ubi:latest
     container_name: barbican_keystone
-    network_mode: host
+    #network_mode: host
     depends_on:
       postgres:
         condition: service_healthy
@@ -84,14 +85,14 @@ services:
         condition: service_healthy
     environment:
       # Database configuration
-      DATABASE_URL: postgresql://keystone:keystone@localhost:5432/keystone
+      DATABASE_URL: postgresql://keystone:keystone@barbican_postgres:5432/keystone
       # Keystone configuration
       ADMIN_TOKEN: devstacker
       ADMIN_PASSWORD: admin123
       SERVICE_PASSWORD: service123
       # Cache configuration
       CACHE_BACKEND: oslo_cache.memcache_pool
-      CACHE_MEMCACHE_SERVERS: localhost:11211
+      CACHE_MEMCACHE_SERVERS: barbican_memcached:11211
     volumes:
       - ./keystone-config:/etc/keystone
       - ./keystone-logs:/var/log/keystone
@@ -158,10 +159,10 @@ services:
         EOF
         
         # Wait for database to be ready
-        while ! pg_isready -h localhost -p 5432 -U barbican; do
-          echo 'Waiting for PostgreSQL...'
-          sleep 5
-        done
+        #while ! pg_isready -h localhost -p 5432 -U barbican; do
+        #  echo 'Waiting for PostgreSQL...'
+        #  sleep 5
+        #done
         
         # Database and user should already be created by postgres-init service
         # Initialize Keystone database
@@ -169,19 +170,22 @@ services:
         
         # Bootstrap Keystone
         keystone-manage bootstrap --bootstrap-password admin123 \
-          --bootstrap-admin-url http://localhost:35357/v3/ \
-          --bootstrap-internal-url http://localhost:5000/v3/ \
-          --bootstrap-public-url http://localhost:5000/v3/ \
+          --bootstrap-admin-url http://barbican_keystone:35357/v3/ \
+          --bootstrap-internal-url http://barbican_keystone:5000/v3/ \
+          --bootstrap-public-url http://barbican_keystone:5000/v3/ \
           --bootstrap-region-id RegionOne
         
         # Start Apache
         /usr/sbin/httpd -D FOREGROUND
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:5000/v3 || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://barbican_keystone:5000/v3 || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
+    ports:
+      - "35357:35357"
+      - "5000:5000"
 
 volumes:
   postgres_data:

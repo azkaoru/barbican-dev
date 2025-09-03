@@ -243,6 +243,138 @@ podman-compose down
 podman-compose up -d
 ```
 
+## OpenStack CLI Configuration
+
+### Using admin-openrc.sh
+
+The repository includes an `admin-openrc.sh` file that sets up the necessary environment variables for OpenStack CLI commands:
+
+```bash
+# Load admin credentials
+source admin-openrc.sh
+
+# Verify authentication (requires running Keystone)
+openstack token issue
+
+# List available services
+openstack service list
+```
+
+### Admin Credentials Configuration
+
+The `admin-openrc.sh` file contains the following configuration that matches the Keystone setup:
+
+```bash
+export OS_PASSWORD=admin123
+export OS_PROJECT_NAME=admin
+export OS_TENANT_NAME=admin
+export OS_USER_DOMAIN_NAME=Default
+export OS_USER_DOMAIN_ID=default
+export OS_PROJECT_DOMAIN_NAME=Default
+export OS_PROJECT_DOMAIN_ID=default
+export OS_AUTH_URL=http://localhost:5000/v3
+export OS_IDENTITY_API_VERSION=3
+export OS_USERNAME=admin
+export OS_REGION_NAME=RegionOne
+```
+
+**Note**: The admin password is `admin123` (not `password` as shown in some examples), which matches the Keystone bootstrap configuration in the podman-compose.yml file.
+
+## Creating Key-Manager VIP Endpoints
+
+With the current Keystone configuration, it is possible to create VIP endpoints for the key-manager (Barbican) service. Here's the step-by-step procedure:
+
+### Prerequisites
+
+1. Ensure all services are running:
+   ```bash
+   ./manage.sh start
+   ```
+
+2. Verify Keystone is accessible:
+   ```bash
+   curl http://localhost:5000/v3
+   ```
+
+3. Load admin credentials:
+   ```bash
+   source admin-openrc.sh
+   ```
+
+### Step 1: Create Key-Manager Service
+
+First, create the key-manager service in Keystone:
+
+```bash
+openstack service create --name barbican --description "OpenStack Key Management Service" key-manager
+```
+
+### Step 2: Create VIP Endpoints
+
+Create endpoints for your VIP (replace `192.168.1.100` with your actual VIP IP address):
+
+```bash
+# Create PUBLIC endpoint
+openstack endpoint create --region RegionOne key-manager public http://192.168.1.100:9311
+
+# Create INTERNAL endpoint  
+openstack endpoint create --region RegionOne key-manager internal http://192.168.1.100:9311
+
+# Create ADMIN endpoint
+openstack endpoint create --region RegionOne key-manager admin http://192.168.1.100:9311
+```
+
+For testing with localhost:
+
+```bash
+# Create endpoints using localhost
+openstack endpoint create --region RegionOne key-manager public http://localhost:9311
+openstack endpoint create --region RegionOne key-manager internal http://localhost:9311
+openstack endpoint create --region RegionOne key-manager admin http://localhost:9311
+```
+
+### Step 3: Verify Endpoints
+
+List the created endpoints to verify they were created successfully:
+
+```bash
+# List all key-manager endpoints
+openstack endpoint list --service key-manager
+
+# List all endpoints
+openstack endpoint list
+```
+
+### Step 4: Test Key-Manager Service
+
+Once Barbican is running and endpoints are configured, test the service:
+
+```bash
+# Store a secret
+openstack secret store --name 'test-secret' --payload 'my-secret-data'
+
+# List secrets
+openstack secret list
+
+# Get secret details
+openstack secret get <secret-id>
+```
+
+### Demo Script
+
+A demo script `create-key-manager-endpoints.sh` is provided that shows all the commands needed to create the VIP endpoints. Run it to see the complete procedure:
+
+```bash
+./create-key-manager-endpoints.sh
+```
+
+### Notes
+
+- The default Barbican port is `9311`
+- The region name is set to `RegionOne` as configured in the Keystone bootstrap
+- VIP endpoints allow for high availability and load balancing of the key-manager service
+- Ensure your VIP is properly configured and that Barbican is running on all nodes behind the VIP
+
 ## Stopping Services
 
 To stop all services:

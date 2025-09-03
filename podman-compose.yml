@@ -81,9 +81,11 @@ services:
       - /bin/bash
       - -c
       - |
+        # Install EPEL repository first
+        dnf install -y epel-release
         # Install OpenStack repository
         dnf install -y centos-release-openstack-epoxy
-        # Install keystone
+        # Install keystone packages
         dnf install -y openstack-keystone python3-keystonemiddleware
         # Run database sync
         keystone-manage db_sync

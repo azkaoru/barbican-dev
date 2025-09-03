@@ -128,10 +128,17 @@ cp etc/barbican/barbican.conf.sample /etc/barbican/barbican.conf
 cp etc/barbican/barbican-api-paste.ini /etc/barbican/
 ```
 
+   **Alternative**: Use the sample configuration provided in this repository:
+```bash
+cp barbican-dev/config/barbican.conf.sample /etc/barbican/barbican.conf
+```
+
 3. Edit `/etc/barbican/barbican.conf` to configure database and Keystone:
 ```ini
 [DEFAULT]
 sql_connection = postgresql://barbican:barbican@localhost:5432/barbican
+# Use fake transport for development (no RabbitMQ required)
+transport_url = fake://
 
 [keystone_authtoken]
 auth_url = http://localhost:5000/v3
@@ -147,6 +154,8 @@ memcached_servers = localhost:11211
 [keystone_notifications]
 enable = True
 ```
+
+**Note**: The `transport_url = fake://` configuration uses a fake messaging driver suitable for development and testing. For production deployments, you would typically use RabbitMQ (`rabbit://`) or another production-ready messaging system.
 
 ### Running Barbican in Debug Mode
 
@@ -216,28 +225,43 @@ psql -h localhost -U barbican -d barbican
 telnet localhost 11211
 ```
 
+4. Validate the development environment setup:
+```bash
+./validate-setup.sh
+```
+
 ## Environment Variables
 
 You can customize the configuration by setting environment variables in the podman-compose.yml file or creating a .env file.
 
 ## Troubleshooting
 
-1. **Check service health**:
+### Common Issues
+
+1. **RabbitMQ Connection Refused Error**:
+   If you see errors like "Connection refused" when running `barbican-worker`, ensure your `/etc/barbican/barbican.conf` includes:
+   ```ini
+   [DEFAULT]
+   transport_url = fake://
+   ```
+   This configures barbican to use a fake messaging driver instead of trying to connect to RabbitMQ, which is not provided in this development environment.
+
+2. **Check service health**:
 ```bash
 podman-compose ps
 ```
 
-2. **View service logs**:
+3. **View service logs**:
 ```bash
 podman-compose logs <service-name>
 ```
 
-3. **Restart services**:
+4. **Restart services**:
 ```bash
 podman-compose restart
 ```
 
-4. **Clean up and restart**:
+5. **Clean up and restart**:
 ```bash
 podman-compose down
 podman-compose up -d

@@ -1,0 +1,54 @@
+# Sample Barbican configuration for development environment
+# Copy this file to /etc/barbican/barbican.conf and modify as needed
+
+[DEFAULT]
+# Database connection for barbican
+sql_connection = postgresql://barbican:barbican@localhost:5432/barbican
+
+# Use fake transport for development (no RabbitMQ required)
+# This prevents "Connection refused" errors when running barbican-worker
+transport_url = fake://
+
+# Enable debug logging
+debug = True
+
+[keystone_authtoken]
+# Keystone authentication configuration
+auth_url = http://localhost:5000/v3
+www_authenticate_uri = http://localhost:5000/v3
+auth_type = password
+project_domain_id = default
+user_domain_id = default
+project_name = service
+username = barbican
+password = barbican
+memcached_servers = localhost:11211
+
+[keystone_notifications]
+# Enable Keystone notifications
+enable = True
+
+[secretstore]
+# Default secret store plugin
+namespace = barbican.secretstore.plugin
+enabled_secretstore_plugins = store_crypto
+
+[crypto]
+# Cryptographic plugin configuration
+namespace = barbican.crypto.plugin
+enabled_crypto_plugins = simple_crypto
+
+[simple_crypto_plugin]
+# Simple crypto plugin for development
+# WARNING: This is for development only, not for production use
+kek = 'YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY='
+
+[certificate]
+# Certificate plugin configuration
+namespace = barbican.certificate.plugin
+enabled_certificate_plugins = simple_certificate
+
+[certificate_event]
+# Certificate event plugin configuration
+namespace = barbican.certificate.event.plugin
+enabled_certificate_event_plugins = simple_certificate_event

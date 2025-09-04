@@ -24,6 +24,14 @@ psql -v ON_ERROR_STOP=1 --username "postgres" --dbname "postgres" <<-EOSQL
     
     -- Grant privileges to barbican user on keystone database
     GRANT ALL PRIVILEGES ON DATABASE keystone TO barbican;
+
+    -- public スキーマの使用権限を付与
+    GRANT USAGE ON SCHEMA public TO barbican;
+    GRANT USAGE ON SCHEMA public TO keystone;
+
+    -- public スキーマでテーブル作成権限を付与
+    GRANT CREATE ON SCHEMA public TO barbican;
+    GRANT CREATE ON SCHEMA public TO keystone;
 EOSQL
 
 echo "Database initialization completed"

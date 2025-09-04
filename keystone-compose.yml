@@ -13,7 +13,8 @@ services:
         # Install OpenStack repository
         dnf install -y centos-release-openstack-epoxy
         # Install keystone packages
-        dnf install -y openstack-keystone python3-keystonemiddleware python3-mod_wsgi python3-openstackclient python3-psycopg2
+        #dnf install -y openstack-keystone python3-keystonemiddleware python3-mod_wsgi python3-openstackclient python3-psycopg2
+        dnf install -y openstack-keystone python3-mod_wsgi python3-psycopg2
 
         useradd -r -s /bin/false keystone || true
         mkdir -p /etc/keystone /var/log/keystone /var/lib/keystone
@@ -61,6 +62,15 @@ services:
                 Require all granted
             </Directory>
         </VirtualHost>
+
+        Alias /identity /usr/bin/keystone-wsgi-public
+        <Location /identity>
+          SetHandler wsgi-script
+          Options +ExecCGI
+          WSGIProcessGroup keystone-public
+          WSGIApplicationGroup %{GLOBAL}
+          WSGIPassAuthorization On
+        </Location>
         EOF
         
         # Wait for database to be ready

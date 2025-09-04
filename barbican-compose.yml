@@ -40,8 +40,8 @@ services:
             CustomLog /var/log/barbican/barbican_access.log combined
 
             <Directory /usr/lib/python3.9/site-packages/barbican/api/app.wsgi>
-                WSGIProcessGroup barbican-public
-                WSGIApplicationGroup %{GLOBAL}
+                #WSGIProcessGroup barbican-public
+                #WSGIApplicationGroup %{GLOBAL}
                 Require all granted
             </Directory>
         </VirtualHost>
@@ -55,10 +55,10 @@ services:
     volumes:
       - ./config/barbican.conf:/etc/barbican/barbican.conf:ro
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://barbican:19311/v3 || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
+    #healthcheck:
+    #  test: ["CMD-SHELL", "curl -f http://barbican:19311/v3 || exit 1"]
+    #  interval: 30s
+    #  timeout: 10s
+    #  retries: 5
     ports:
       - "19311:19311"

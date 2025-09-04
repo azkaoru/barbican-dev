@@ -168,7 +168,77 @@ services:
     ports:
       - "35357:35357"
       - "5000:5000"
-    
+
+  barbican:
+    #image: registry.redhat.io/ubi9/ubi:latest
+    image: docker.io/rockylinux/rockylinux:9.6-ubi
+    container_name: barbican
+    command:
+      - /bin/bash
+      - -c
+      - |
+        # Install EPEL repository first
+        dnf install -y epel-release
+        # Install OpenStack repository
+        dnf install -y centos-release-openstack-epoxy
+        # Install barbican packages
+        #dnf install -y openstack-barbican-api openstack-keystone python3-keystonemiddleware python3-mod_wsgi python3-openstackclient python3-psycopg2
+        dnf install -y openstack-barbican-api python3-mod_wsgi python3-openstackclient python3-psycopg2
+
+        useradd -r -s /bin/false barbican || true
+        mkdir -p /etc/barbican /var/log/barbican /var/lib/barbican
+        chown -R barbican:barbican /etc/barbican /var/log/barbican /var/lib/barbican
+        
+        # Configure Apache for Keystone
+        cat > /etc/httpd/conf.d/wsgi-barbican.conf << 'EOF'
+        Listen 19311
+
+        <VirtualHost *:19311>
+            WSGIDaemonProcess barbican-public processes=1 threads=1 user=barbican group=barbican display-name=%{GROUP} listen-backlog=100 connect-timeout=60 socket-timeout=120
+            WSGIProcessGroup barbican-public
+            WSGIScriptAlias / /usr/lib/python3.9/site-packages/barbican/api/app.wsgi
+            WSGIApplicationGroup %{GLOBAL}
+            WSGIPassAuthorization On
+
+            LogLevel debug
+            ErrorLogFormat "%{cu}t %M"
+            ErrorLog /var/log/barbican/barbican.log
+            ServerSignature Off
+
+            CustomLog /var/log/barbican/barbican_access.log combined
+
+            <Directory /usr/lib/python3.9/site-packages/barbican/api/app.wsgi>
+                WSGIProcessGroup barbican-public
+                WSGIApplicationGroup %{GLOBAL}
+                Require all granted
+            </Directory>
+        </VirtualHost>
+
+        EOF
+        # Initialize Keystone database
+        barbican-manage db upgrade
+        
+        # Start Apache
+        /usr/sbin/httpd -D FOREGROUND
+    volumes:
+      - ./config/barbican.conf:/etc/barbican/barbican.conf:ro
+    environment:
+      - OS_DB_CONNECTION=postgresql+psycopg2://barbican:barbican@barbican_postgres/barbican
+    depends_on:
+      db:
+        condition: service_healthy
+      postgres-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://barbican:9311/v3 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    ports:
+      - "19311:19311"
+
+
   # Keystone API hosted by Apache service
   # keystone_apache:
   #   image: httpd:2.4-alpine

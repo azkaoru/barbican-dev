@@ -229,9 +229,11 @@ services:
         condition: service_healthy
       postgres-init:
         condition: service_completed_successfully
+      keystone:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://barbican:9311/v3 || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://barbican:19311/v3 || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5

@@ -164,7 +164,7 @@ services:
       test: ["CMD-SHELL", "curl -f http://barbican_keystone:5000/v3 || exit 1"]
       interval: 30s
       timeout: 10s
-      retries: 5 
+      retries: 5
     ports:
       - "35357:35357"
       - "5000:5000"
@@ -225,12 +225,14 @@ services:
     environment:
       - OS_DB_CONNECTION=postgresql+psycopg2://barbican:barbican@barbican_postgres/barbican
     depends_on:
-      db:
-        condition: service_healthy
-      postgres-init:
-        condition: service_completed_successfully
       keystone:
         condition: service_healthy
+      # db:
+      #   condition: service_healthy
+      # postgres-init:
+      #   condition: service_completed_successfully
+      # keystone:
+      #   condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://barbican:19311/v3 || exit 1"]

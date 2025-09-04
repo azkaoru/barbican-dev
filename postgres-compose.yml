@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  # Rename postgres to db to match the sample configuration
+  db:
+    image: registry.redhat.io/rhel9/postgresql-15:latest
+    container_name: barbican_postgres
+    #network_mode: host
+    environment:
+      POSTGRESQL_USER: barbican
+      POSTGRESQL_PASSWORD: barbican
+      POSTGRESQL_DATABASE: barbican
+      POSTGRESQL_ADMIN_PASSWORD: admin123
+    volumes:
+      - postgres_data:/var/lib/pgsql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U barbican -d barbican"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres-init:
+    image: registry.redhat.io/rhel9/postgresql-15:latest
+    container_name: barbican_postgres_init
+    #network_mode: host
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      POSTGRESQL_USER: barbican
+      POSTGRESQL_PASSWORD: barbican
+      POSTGRESQL_DATABASE: barbican
+      POSTGRESQL_ADMIN_PASSWORD: admin123
+      PGPASSWORD: admin123
+    volumes:
+      - ./init-db:/scripts
+    command:
+      - /bin/bash
+      - -c
+      - |
+        echo "Starting database initialization..."
+        echo "PostgreSQL is ready, running initialization scripts..."
+        psql -h barbican_postgres -U postgres  postgres -f /scripts/init.sql      
+        # Run all scripts i the scripts directory
+        #for script in /scripts/*.sh; do
+        #  if [ -f "$script" ]; then
+        #    echo "Executing: $script"
+        #    bash "$script"
+        #  fi
+        #done
+        #sleep 300 
+        echo "Database initialization completed"
+    restart: "no"
+    ports:
+      - "5432:5432"
+volumes:
+  postgres_data:

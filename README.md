@@ -32,6 +32,35 @@ buildah bud --format=docker -t openstack/mybase:1.0 .
 
 ## Quick Start
 
+### Using Makefile (Recommended)
+
+1. **Start PostgreSQL**:
+```bash
+make postgres
+```
+
+2. **Start Keystone**:
+```bash
+make keystone
+```
+
+3. **Start Barbican**:
+```bash
+make barbican
+```
+
+4. **Start all services**:
+```bash
+make up
+```
+
+5. **Show available targets**:
+```bash
+make help
+```
+
+### Using podman-compose directly
+
 1. **Start PostgreSQL**:
 ```bash
 podman-compose -f postgres-compose.yml up
@@ -69,7 +98,23 @@ Additional database 'keystone' is created for Keystone service.
 - PostgreSQL data is persisted in the `postgres_data` volume
 - Keystone Fernet keys are persisted in the `keystone_fernet` volume
 
-## cleanup
+## Cleanup
+
+### Using Makefile (Recommended)
+
+1. **Clean all services**:
+```bash
+make clean
+```
+
+2. **Clean individual services**:
+```bash
+make clean-postgres
+make clean-keystone
+make clean-barbican
+```
+
+### Using podman-compose directly
 
 1. **Clean Barbican**:
 ```bash

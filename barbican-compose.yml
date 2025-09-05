@@ -3,43 +3,35 @@ version: '3.8'
 services:
   barbican:
     #image: registry.redhat.io/ubi9/ubi:latest
-    image: docker.io/rockylinux/rockylinux:9.6-ubi
+    image: openstack/mybase:1.0
     container_name: barbican
     command:
       - /bin/bash
       - -c
       - |
-        # Install EPEL repository first
-        dnf install -y epel-release
-        # Install OpenStack repository
-        dnf install -y centos-release-openstack-epoxy
-        # Install barbican packages
-        #dnf install -y openstack-barbican-api openstack-keystone python3-keystonemiddleware python3-mod_wsgi python3-openstackclient python3-psycopg2
-        dnf install -y openstack-barbican-api python3-mod_wsgi python3-openstackclient python3-psycopg2
-
+        set -x
         useradd -r -s /bin/false barbican || true
         mkdir -p /etc/barbican /var/log/barbican /var/lib/barbican
         chown -R barbican:barbican /etc/barbican /var/log/barbican /var/lib/barbican
         
         # Configure Apache for Keystone
         cat > /etc/httpd/conf.d/wsgi-barbican.conf << 'EOF'
-        Listen 19311
+        Listen 9311
 
-        <VirtualHost *:19311>
-            WSGIDaemonProcess barbican-public processes=1 threads=1 user=barbican group=barbican display-name=%{GROUP} listen-backlog=100 connect-timeout=60 socket-timeout=120
-            WSGIProcessGroup barbican-public
-            WSGIScriptAlias / /usr/lib/python3.9/site-packages/barbican/api/app.wsgi
-            WSGIApplicationGroup %{GLOBAL}
-            WSGIPassAuthorization On
-
+        <VirtualHost *:9311>
             LogLevel debug
             ErrorLogFormat "%{cu}t %M"
             ErrorLog /var/log/barbican/barbican.log
             ServerSignature Off
-
             CustomLog /var/log/barbican/barbican_access.log combined
 
-            <Directory /usr/lib/python3.9/site-packages/barbican/api/app.wsgi>
+            WSGIApplicationGroup %{GLOBAL}
+            WSGIDaemonProcess barbican-public processes=1 threads=1 user=barbican group=barbican display-name=%{GROUP} listen-backlog=100 connect-timeout=60 socket-timeout=120
+            WSGIProcessGroup barbican-public
+            WSGIScriptAlias / "/usr/lib/python3.9/site-packages/barbican/api/app.wsgi"
+            WSGIPassAuthorization On
+
+            <Directory /usr/lib/python3.9/site-packages/barbican/api>
                 #WSGIProcessGroup barbican-public
                 #WSGIApplicationGroup %{GLOBAL}
                 Require all granted
@@ -48,17 +40,47 @@ services:
 
         EOF
         # Initialize Keystone database
-        barbican-manage db upgrade
-        
+        /bin/sh -c "barbican-manage db upgrade" barbican
+ 
         # Start Apache
         /usr/sbin/httpd -D FOREGROUND
     volumes:
       - ./config/barbican.conf:/etc/barbican/barbican.conf:ro
     restart: unless-stopped
-    #healthcheck:
-    #  test: ["CMD-SHELL", "curl -f http://barbican:19311/v3 || exit 1"]
-    #  interval: 30s
-    #  timeout: 10s
-    #  retries: 5
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 9311 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
     ports:
-      - "19311:19311"
+      - "9311:9311"
+  barbican-init:
+    image: openstack/mybase:1.0
+    container_name: barbican_client
+    depends_on:
+      barbican:
+        condition: service_healthy
+    command:
+      - /bin/bash
+      - -c
+      - |
+        # Configure  for openstackclient
+        cat > /etc/barbican/admin-openrc.sh << 'EOF'
+        export OS_USERNAME=admin
+        export OS_PASSWORD=admin123
+        export OS_PROJECT_NAME=admin
+        export OS_TENANT_NAME=admin
+        export OS_USER_DOMAIN_NAME=Default
+        export OS_USER_DOMAIN_ID=default
+        export OS_PROJECT_DOMAIN_NAME=Default
+        export OS_PROJECT_DOMAIN_ID=default
+        export OS_AUTH_URL=http://barbican_keystone:5000/v3
+        export OS_IDENTITY_API_VERSION=3
+        EOF
+          
+        source /etc/barbican/admin-openrc.sh
+        openstack secret store --name "my-test-secret" --payload ThisIsAVerySecurePassword
+        openstack secret list
+        # openstack secret get <secret-href>
+
+        tail -f /dev/null

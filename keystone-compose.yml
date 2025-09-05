@@ -2,27 +2,19 @@ version: '3.8'
 
 services:
   keystone:
-    image: docker.io/rockylinux/rockylinux:9.6-ubi
+    image: openstack/mybase:1.0
     container_name: barbican_keystone
     command:
       - /bin/bash
       - -c
       - |
-        # Install EPEL repository first
-        dnf install -y epel-release
-        # Install OpenStack repository
-        dnf install -y centos-release-openstack-epoxy
-        # Install keystone packages
-        #dnf install -y openstack-keystone python3-keystonemiddleware python3-mod_wsgi python3-openstackclient python3-psycopg2
-        dnf install -y openstack-keystone python3-mod_wsgi python3-psycopg2
-
         useradd -r -s /bin/false keystone || true
         mkdir -p /etc/keystone /var/log/keystone /var/lib/keystone
         chown -R keystone:keystone /etc/keystone /var/log/keystone /var/lib/keystone
         
         # Generate Fernet keys
         keystone-manage fernet_setup --keystone-user keystone --keystone-group keystone
-        keystone-manage credential_setup --keystone-user keystone --keystone-group keystone
+        #keystone-manage credential_setup --keystone-user keystone --keystone-group keystone
         
         # Configure Apache for Keystone
         cat > /etc/httpd/conf.d/wsgi-keystone.conf << 'EOF'
@@ -84,11 +76,12 @@ services:
           --bootstrap-internal-url http://barbican_keystone:5000/v3/ \
           --bootstrap-public-url http://barbican_keystone:5000/v3/ \
           --bootstrap-region-id RegionOne
-        
+
         # Start Apache
         /usr/sbin/httpd -D FOREGROUND
     volumes:
       - ./config/keystone.conf:/etc/keystone/keystone.conf:ro
+      - fernet_keys_data:/etc/keyston/fernet-keys
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://barbican_keystone:5000/v3 || exit 1"]
@@ -98,3 +91,50 @@ services:
     ports:
       - "35357:35357"
       - "5000:5000"
+  keystone-init:
+    image: openstack/mybase:1.0
+    container_name: barbican_keystone_init
+    restart: "no"
+    depends_on:
+      keystone:
+        condition: service_healthy
+    command:
+      - /bin/bash
+      - -c
+      - |
+        set -x
+        # Configure  for openstackclient
+        cat > /etc/keystone/admin-openrc.sh << 'EOF'
+        export OS_USERNAME=admin
+        export OS_PASSWORD=admin123
+        export OS_PROJECT_NAME=admin
+        export OS_TENANT_NAME=admin
+        export OS_USER_DOMAIN_NAME=Default
+        export OS_USER_DOMAIN_ID=default
+        export OS_PROJECT_DOMAIN_NAME=Default
+        export OS_PROJECT_DOMAIN_ID=default
+        export OS_AUTH_URL=http://barbican_keystone:5000/v3
+        export OS_IDENTITY_API_VERSION=3
+        EOF
+          
+        source /etc/keystone/admin-openrc.sh
+        # create user barbican
+        openstack user create --password barbican --domain default barbican
+        # create project service
+        openstack project create service
+        # barbican to admin role
+        openstack role add --project service --user barbican admin
+        # create creator role
+        openstack role create creator
+        # barbican to creator role
+        openstack role add --project service --user barbican creator
+        # create service barbican
+        openstack service create --name barbican --description "Key Manager" key-manager
+        # create vip endpoint
+        openstack endpoint create --region RegionOne key-manager public http://barbican:9311
+        openstack endpoint create --region RegionOne key-manager internal http://barbican:9311
+        openstack endpoint create --region RegionOne key-manager admin http://barbican:9311
+        openstack endpoint list
+volumes:
+  fernet_keys_data:
+

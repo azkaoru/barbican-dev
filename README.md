@@ -1,6 +1,6 @@
 # Barbican Development Environment
 
-This repository provides a podman-compose configuration for setting up a Barbican development environment with PostgreSQL, Memcached, and OpenStack Keystone services.
+This repository provides a podman-compose configuration for setting up a Barbican development environment with PostgreSQL, and OpenStack Keystone services.
 
 ## Prerequisites
 
@@ -12,31 +12,39 @@ This repository provides a podman-compose configuration for setting up a Barbica
 
 The development environment includes:
 
-1. **PostgreSQL 15**: Database for Barbican and Keystone
-2. **Memcached**: Caching service for OpenStack components
-3. **Keystone**: OpenStack Identity service with Apache/mod_wsgi
+1. **PostgreSQL**: Database for Barbican and Keystone
+2. **Keystone**: OpenStack Identity service with Apache/mod_wsgi
+3. **Barbican**: OpenStack KeyManager service with Apache/mod_wsgi
+
+## Prerequisites
+
+- RHEL9 or compatible system (Rocky Linux 9.5 or equivalent)
+- Podman and podman-compose installed
+- Internet access for downloading Rocky Linux containers and OpenStack repositories
+- Build Base Container
+
+## Builld Base Container
+
+```bash
+cd container
+buildah bud --format=docker -t openstack/mybase:1.0 .
+```
 
 ## Quick Start
 
-1. Clone this repository:
+1. **Start PostgreSQL**:
 ```bash
-git clone <repository-url>
-cd barbican-dev
+podman-compose -f postgres-compose.yml up
 ```
 
-2. Start the services:
+2. **Start Keystone**:
 ```bash
-podman-compose up -d
+podman-compose -f keystone-compose.yml up
 ```
 
-3. Check service status:
+3. **Start Barbican**:
 ```bash
-podman-compose ps
-```
-
-4. View logs:
-```bash
-podman-compose logs -f
+podman-compose -f barbican-compose.yml up
 ```
 
 ## Service Configuration
@@ -46,14 +54,8 @@ podman-compose logs -f
 - **Database**: barbican
 - **Username**: barbican
 - **Password**: barbican
-- **Admin Password**: admin123
 
 Additional database 'keystone' is created for Keystone service.
-
-### Memcached
-- **Port**: 11211 (host network)
-- **Memory**: 64MB
-- **Max Connections**: 1024
 
 ### Keystone
 - **Public API**: http://localhost:5000/v3
@@ -62,194 +64,26 @@ Additional database 'keystone' is created for Keystone service.
 - **Admin Password**: admin123
 - **Region**: RegionOne
 
-## Network Configuration
-
-All services use host networking mode (`network_mode: host`) for development convenience. This allows direct access to services from the host system without port mapping.
-
 ## Data Persistence
 
 - PostgreSQL data is persisted in the `postgres_data` volume
 - Keystone Fernet keys are persisted in the `keystone_fernet` volume
-- Keystone logs are stored in the `./keystone-logs` directory
 
-## Building and Installing Barbican on RHEL9
+## cleanup
 
-Once the supporting services are running, you can build and install Barbican from source:
-
-### Prerequisites for Barbican Development
-
-1. Install Python development tools:
+1. **Clean Barbican**:
 ```bash
-sudo dnf install python3-devel python3-pip git gcc
+podman-compose -f barbican-compose.yml down -v
 ```
 
-2. Install additional system dependencies:
+2. **Clean Keystone**:
 ```bash
-sudo dnf install libffi-devel openssl-devel sqlite-devel
+podman-compose -f keystone-compose.yml down -v
 ```
 
-### Building Barbican from Source
-
-1. Clone the Barbican repository:
+3. **Clean PostgreSQL**:
 ```bash
-git clone https://github.com/openstack/barbican.git
-cd barbican
+podman-compose -f postgres-compose.yml  down -v
 ```
 
-2. Create a Python virtual environment:
-```bash
-python3 -m venv barbican-venv
-source barbican-venv/bin/activate
-```
 
-3. Upgrade pip and install dependencies:
-```bash
-pip install --upgrade pip setuptools wheel
-pip install -r requirements.txt
-pip install -r test-requirements.txt
-```
-
-4. Install Barbican in development mode:
-```bash
-pip install -e .
-```
-
-### Configuring Barbican
-
-1. Create the configuration directory:
-```bash
-sudo mkdir -p /etc/barbican
-sudo chown $(whoami):$(whoami) /etc/barbican
-```
-
-2. Copy sample configuration files:
-```bash
-cp etc/barbican/barbican.conf.sample /etc/barbican/barbican.conf
-cp etc/barbican/barbican-api-paste.ini /etc/barbican/
-```
-
-3. Edit `/etc/barbican/barbican.conf` to configure database and Keystone:
-```ini
-[DEFAULT]
-sql_connection = postgresql://barbican:barbican@localhost:5432/barbican
-
-[keystone_authtoken]
-auth_url = http://localhost:5000/v3
-www_authenticate_uri = http://localhost:5000/v3
-auth_type = password
-project_domain_id = default
-user_domain_id = default
-project_name = service
-username = barbican
-password = barbican
-memcached_servers = localhost:11211
-
-[keystone_notifications]
-enable = True
-```
-
-### Running Barbican in Debug Mode
-
-1. Ensure the supporting services are running:
-```bash
-podman-compose up -d
-```
-
-2. Initialize the Barbican database:
-```bash
-source barbican-venv/bin/activate
-barbican-db-manage upgrade
-```
-
-3. Start Barbican in debug mode:
-```bash
-# Start the API server in debug mode
-barbican-api --debug --config-file=/etc/barbican/barbican.conf
-
-# Or use uwsgi for development (in another terminal)
-uwsgi --http :9311 --wsgi-file barbican/api/app.py --callable application --enable-threads
-```
-
-4. Start the worker process (in another terminal):
-```bash
-source barbican-venv/bin/activate
-barbican-worker --debug --config-file=/etc/barbican/barbican.conf
-```
-
-### Verifying Barbican Installation
-
-1. Test the API endpoint:
-```bash
-curl http://localhost:9311/v1/secrets
-```
-
-2. Use the Barbican client:
-```bash
-pip install python-barbicanclient
-export OS_AUTH_URL=http://localhost:5000/v3
-export OS_USERNAME=admin
-export OS_PASSWORD=admin123
-export OS_PROJECT_NAME=admin
-export OS_USER_DOMAIN_NAME=Default
-export OS_PROJECT_DOMAIN_NAME=Default
-export OS_IDENTITY_API_VERSION=3
-barbican secret store --payload="my secret data"
-```
-
-## Development Usage
-
-After starting the services, you can:
-
-1. Access Keystone API directly:
-```bash
-curl http://localhost:5000/v3
-```
-
-2. Connect to PostgreSQL:
-```bash
-psql -h localhost -U barbican -d barbican
-```
-
-3. Connect to Memcached:
-```bash
-telnet localhost 11211
-```
-
-## Environment Variables
-
-You can customize the configuration by setting environment variables in the podman-compose.yml file or creating a .env file.
-
-## Troubleshooting
-
-1. **Check service health**:
-```bash
-podman-compose ps
-```
-
-2. **View service logs**:
-```bash
-podman-compose logs <service-name>
-```
-
-3. **Restart services**:
-```bash
-podman-compose restart
-```
-
-4. **Clean up and restart**:
-```bash
-podman-compose down
-podman-compose up -d
-```
-
-## Stopping Services
-
-To stop all services:
-```bash
-podman-compose down
-```
-
-To stop and remove volumes:
-```bash
-podman-compose down -v
-```

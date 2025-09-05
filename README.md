@@ -8,6 +8,8 @@ This repository provides a podman-compose configuration for setting up a Barbica
 - Podman and podman-compose installed
 - Internet access for downloading Rocky Linux containers and OpenStack repositories
 
+**Note**: The base container will be built automatically using `make build-base` (see Quick Start section below).
+
 ## Services
 
 The development environment includes:
@@ -16,47 +18,53 @@ The development environment includes:
 2. **Keystone**: OpenStack Identity service with Apache/mod_wsgi
 3. **Barbican**: OpenStack KeyManager service with Apache/mod_wsgi
 
-## Prerequisites
-
-- RHEL9 or compatible system (Rocky Linux 9.5 or equivalent)
-- Podman and podman-compose installed
-- Internet access for downloading Rocky Linux containers and OpenStack repositories
-- Build Base Container
-
-## Builld Base Container
-
-```bash
-cd container
-buildah bud --format=docker -t openstack/mybase:1.0 .
-```
-
 ## Quick Start
 
 ### Using Makefile (Recommended)
 
-1. **Start PostgreSQL**:
+The Makefile provides convenient commands for managing the entire development environment.
+
+1. **Build the base container** (required first step):
+```bash
+make build-base
+```
+
+2. **Start PostgreSQL**:
 ```bash
 make postgres
 ```
 
-2. **Start Keystone**:
+3. **Start Keystone**:
 ```bash
 make keystone
 ```
 
-3. **Start Barbican**:
+4. **Start Barbican**:
 ```bash
 make barbican
 ```
 
-4. **Start all services**:
+5. **Start all services at once**:
 ```bash
 make up
 ```
 
-5. **Show available targets**:
+6. **Show all available commands**:
 ```bash
 make help
+```
+
+#### Complete Workflow Example
+
+```bash
+# 1. Build the base container (one-time setup)
+make build-base
+
+# 2. Start all services
+make up
+
+# 3. When done, clean up
+make clean
 ```
 
 ### Using podman-compose directly
@@ -102,17 +110,19 @@ Additional database 'keystone' is created for Keystone service.
 
 ### Using Makefile (Recommended)
 
-1. **Clean all services**:
+1. **Clean all services and data**:
 ```bash
 make clean
 ```
 
 2. **Clean individual services**:
 ```bash
-make clean-postgres
-make clean-keystone
-make clean-barbican
+make clean-postgres    # Clean PostgreSQL only
+make clean-keystone    # Clean Keystone only  
+make clean-barbican    # Clean Barbican only
 ```
+
+**Note**: The `clean` commands will stop services and remove all associated volumes and data.
 
 ### Using podman-compose directly
 

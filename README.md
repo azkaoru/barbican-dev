@@ -8,7 +8,7 @@ This repository provides a podman-compose configuration for setting up a Barbica
 - Podman and podman-compose installed
 - Internet access for downloading Rocky Linux containers and OpenStack repositories
 
-**Note**: The base container will be built automatically using `make build-base` (see Quick Start section below).
+**Note**: Before starting any services, you must first build the base container using `make build-base`. This is a one-time setup step (see Quick Start section below).
 
 ## Services
 
@@ -24,7 +24,9 @@ The development environment includes:
 
 The Makefile provides convenient commands for managing the entire development environment.
 
-1. **Build the base container** (required first step):
+**⚠️ Important**: Before using any other make commands, you must first build the base container image. This is a one-time setup step that only needs to be performed once.
+
+1. **Build the base container** (required first step - one-time only):
 ```bash
 make build-base
 ```
@@ -57,7 +59,7 @@ make help
 #### Complete Workflow Example
 
 ```bash
-# 1. Build the base container (one-time setup)
+# 1. Build the base container (REQUIRED - one-time setup only)
 make build-base
 
 # 2. Start all services
@@ -66,6 +68,8 @@ make up
 # 3. When done, clean up
 make clean
 ```
+
+**Note**: The `make build-base` command only needs to be run once during initial setup. After that, you can use `make up`, `make clean`, and other commands without rebuilding the base container.
 
 ### Using podman-compose directly
 

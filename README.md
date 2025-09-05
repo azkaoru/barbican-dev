@@ -24,32 +24,33 @@ The development environment includes:
 
 The Makefile provides convenient commands for managing the entire development environment.
 
+**Important Note**: Due to startup dependencies between services, each service must be started in separate terminals in the correct order. PostgreSQL must be fully started before Keystone, and Keystone must be fully started before Barbican.
+
 1. **Build the base container** (required first step):
 ```bash
 make build-base
 ```
 
-2. **Start PostgreSQL**:
-```bash
-make postgres
-```
+2. **Start services in order (each in a separate terminal)**:
 
-3. **Start Keystone**:
-```bash
-make keystone
-```
+   **Terminal 1 - Start PostgreSQL**:
+   ```bash
+   make postgres
+   ```
+   Wait for PostgreSQL to be fully started before proceeding.
 
-4. **Start Barbican**:
-```bash
-make barbican
-```
+   **Terminal 2 - Start Keystone**:
+   ```bash
+   make keystone
+   ```
+   Wait for Keystone to be fully started before proceeding.
 
-5. **Start all services at once**:
-```bash
-make up
-```
+   **Terminal 3 - Start Barbican**:
+   ```bash
+   make barbican
+   ```
 
-6. **Show all available commands**:
+3. **Show all available commands**:
 ```bash
 make help
 ```
@@ -60,10 +61,16 @@ make help
 # 1. Build the base container (one-time setup)
 make build-base
 
-# 2. Start all services
-make up
+# 2. Start PostgreSQL in Terminal 1
+make postgres
 
-# 3. When done, clean up
+# 3. After PostgreSQL is ready, start Keystone in Terminal 2
+make keystone
+
+# 4. After Keystone is ready, start Barbican in Terminal 3
+make barbican
+
+# 5. When done, clean up (can be run from any terminal)
 make clean
 ```
 

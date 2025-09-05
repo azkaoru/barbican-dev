@@ -1,7 +1,7 @@
 # Barbican Development Environment Makefile
 # This Makefile provides convenient targets for managing the podman-compose services
 
-.PHONY: help postgres keystone barbican up clean clean-postgres clean-keystone clean-barbican build-base
+.PHONY: help postgres keystone barbican clean clean-postgres clean-keystone clean-barbican build-base
 
 # Default target
 help:
@@ -13,7 +13,6 @@ help:
 	@echo "  postgres         Start PostgreSQL service"
 	@echo "  keystone         Start Keystone service"
 	@echo "  barbican         Start Barbican service"
-	@echo "  up               Start all services (postgres, keystone, barbican)"
 	@echo "  clean            Stop and remove all services with volumes"
 	@echo "  clean-postgres   Stop and remove PostgreSQL service with volumes"
 	@echo "  clean-keystone   Stop and remove Keystone service with volumes"
@@ -41,16 +40,6 @@ keystone:
 # Start Barbican service
 barbican:
 	@echo "Starting Barbican service..."
-	podman-compose -f barbican-compose.yml up
-
-# Start all services
-up:
-	@echo "Starting all services..."
-	@echo "Starting PostgreSQL..."
-	podman-compose -f postgres-compose.yml up -d
-	@echo "Starting Keystone..."
-	podman-compose -f keystone-compose.yml up -d
-	@echo "Starting Barbican..."
 	podman-compose -f barbican-compose.yml up
 
 # Clean up all services

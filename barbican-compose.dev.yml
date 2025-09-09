@@ -1,0 +1,105 @@
+version: '3.8'
+
+services:
+  barbican:
+    #image: registry.redhat.io/ubi9/ubi:latest
+    image: openstack/mybase:1.0
+    container_name: barbican_dev
+    environment:
+      DEV_REPO: https://github.com/azkaoru/barbican.git
+      DEV_BRANCH: my-feature-branch
+      POSTGRESQL_DATABASE: barbican
+      POSTGRESQL_ADMIN_PASSWORD: admin123
+
+    command:
+      - /bin/bash
+      - -c
+      - |
+        # Install Python development tools:
+        dnf -y install python3.9-devel python3.9-pip git gcc
+        # Install additional system dependencies:
+        #dnf install libffi-devel openssl-devel sqlite-devel
+        git clone ${DEV_REPO} -b ${DEV_BRANCH} /root/barbican
+        cd /root/barbican
+        python3.9 -m pip install --upgrade pip setuptools wheel
+        python3.9 -m pip install -r requirements.txt
+        python3.9 -m pip install -r test-requirements.txt
+        # install to /usr/local/lib/python3.9/site-packages/barbican
+        python3.9 setup.py install
+ 
+
+        set -x
+        useradd -r -s /bin/false barbican || true
+        mkdir -p /etc/barbican /var/log/barbican /var/lib/barbican
+        chown -R barbican:barbican /etc/barbican /var/log/barbican /var/lib/barbican
+        
+        # Configure Apache for Keystone
+        cat > /etc/httpd/conf.d/wsgi-barbican.conf << 'EOF'
+        Listen 9311
+
+        <VirtualHost *:9311>
+            LogLevel debug
+            ErrorLogFormat "%{cu}t %M"
+            ErrorLog /var/log/barbican/barbican.log
+            ServerSignature Off
+            CustomLog /var/log/barbican/barbican_access.log combined
+
+            WSGIApplicationGroup %{GLOBAL}
+            WSGIDaemonProcess barbican-public processes=1 threads=1 user=barbican group=barbican display-name=%{GROUP} listen-backlog=100 connect-timeout=60 socket-timeout=120
+            WSGIProcessGroup barbican-public
+            WSGIScriptAlias / "/usr/local/lib/python3.9/site-packages/barbican/api/app.wsgi"
+            WSGIPassAuthorization On
+
+            <Directory /usr/local/lib/python3.9/site-packages/barbican/api>
+                #WSGIProcessGroup barbican-public
+                #WSGIApplicationGroup %{GLOBAL}
+                Require all granted
+            </Directory>
+        </VirtualHost>
+
+        EOF
+        # Initialize Keystone database
+        /bin/sh -c "barbican-manage db upgrade" barbican
+ 
+        # Start Apache
+        /usr/sbin/httpd -D FOREGROUND
+    volumes:
+      - ./config/barbican.conf:/etc/barbican/barbican.conf:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 9311 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    ports:
+      - "9311:9311"
+  barbican-init:
+    image: openstack/mybase:1.0
+    container_name: barbican_client
+    depends_on:
+      barbican:
+        condition: service_healthy
+    command:
+      - /bin/bash
+      - -c
+      - |
+        # Configure  for openstackclient
+        cat > /etc/barbican/admin-openrc.sh << 'EOF'
+        export OS_USERNAME=admin
+        export OS_PASSWORD=admin123
+        export OS_PROJECT_NAME=admin
+        export OS_TENANT_NAME=admin
+        export OS_USER_DOMAIN_NAME=Default
+        export OS_USER_DOMAIN_ID=default
+        export OS_PROJECT_DOMAIN_NAME=Default
+        export OS_PROJECT_DOMAIN_ID=default
+        export OS_AUTH_URL=http://barbican_keystone:5000/v3
+        export OS_IDENTITY_API_VERSION=3
+        EOF
+          
+        source /etc/barbican/admin-openrc.sh
+        openstack secret store --name "my-test-secret" --payload ThisIsAVerySecurePassword
+        openstack secret list
+        # openstack secret get <secret-href>
+
+        tail -f /dev/null

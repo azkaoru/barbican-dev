@@ -117,9 +117,10 @@ services:
         source /etc/barbican/admin-openrc.sh
         barbican-manage hsm gen_hmac --library-path /usr/lib64/pkcs11/libsofthsm2.so --passphrase ${SOFTHSM_USERPIN} --slot-id $(softhsm2-util --show-slots | grep -m 1 Slot | sed -e "s/^Slot //") --label softhsm_hmac_0
         barbican-manage hsm gen_mkek --library-path /usr/lib64/pkcs11/libsofthsm2.so --passphrase ${SOFTHSM_USERPIN} --slot-id $(softhsm2-util --show-slots | grep -m 1 Slot | sed -e "s/^Slot //") --label softhsm_mkek_0
-        openstack secret order create key
-        openstack secret order list
-        openstack secret list
+        #
+        ORDER_HREF=$(openstack secret order create key  -b 256  -x 2026-07-12T12:00:00+00:00  -f value -c "Order href")
+        openstack secret order get $(openstack secret order create key  -b 256  -x 2026-07-12T12:00:00+00:00  -f value -c "Order href") -f value -c "Secret href"
+
         # openstack secret get <secret-href>
         tail -f /dev/null
 volumes:

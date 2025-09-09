@@ -15,20 +15,16 @@ services:
       - -c
       - |
         set -x
-        dnf install -y softhsm
         softhsm2-util --init-toke --slot $SOFTHSM_SLOT_ID  --label $SOFTHSM_TOKEN_LABEL --so-pin $SOFTHSM_SOPIN --pin $SOFTHSM_USERPIN
-        softhsm2-util --show-slot
-        SLOT_ID=$(softhsm2-util --show-slots | grep -m 1 Slot | sed -e "s/^Slot //")
-        TOKEN_SERIAL=$(softhsm2-util --show-slots | grep -m 1 "Serial number:" | sed -e "s/^.*Serial number:\s*//")
-        cat > /tmp/barbican_add_config << EOF
+        cat > /tmp/barbican_p11_config << EOF
         [p11_crypto_plugin]
         library_path = /usr/lib64/pkcs11/libsofthsm2.so
-        token_serial_number = $TOKEN_SERIAL
-        login = $SOFTHSM_USERPIN
+        token_serial_number = $(softhsm2-util --show-slots | grep -m 1 Slot | sed -e "s/^Slot //") 
+        login = ${SOFTHSM_USERPIN}
         mkek_label = 'softhsm_mkek_0'
         mkek_length = 32
         hmac_label = 'softhsm_hmac_0'
-        slot_id = $SLOT_ID
+        slot_id = $(softhsm2-util --show-slots | grep -m 1 "Serial number:" | sed -e "s/^.*Serial number:\s*//")
         encryption_mechanism = CKM_AES_CBC
         hmac_key_type = CKK_GENERIC_SECRET
         hmac_keygen_mechanism = CKM_GENERIC_SECRET_KEY_GEN 
@@ -40,6 +36,12 @@ services:
         [secretstore]
         enabled_secretstore_plugins = store_crypto
         EOF
+
+        # 既に barbican.conf に設定が存在するか確認
+        if ! grep -Fxq "p11_crypto_plugin" /etc/barbican/barbican.conf; then
+          # add p11 config
+          cat /tmp/barbican_p11_config >> /etc/barbican/barbican.conf
+        fi
 
         useradd -r -s /bin/false barbican || true
         mkdir -p /etc/barbican /var/log/barbican /var/lib/barbican
@@ -74,7 +76,7 @@ services:
         # Start Apache
         /usr/sbin/httpd -D FOREGROUND
     volumes:
-      - ./config/barbican.conf:/etc/barbican/barbican.conf:ro
+      - ./config/barbican.conf:/etc/barbican/barbican.conf
       - softhsm_tokens_data:/var/lib/softhsm/tokens
     restart: unless-stopped
     healthcheck:

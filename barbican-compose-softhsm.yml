@@ -19,12 +19,12 @@ services:
         cat > /tmp/barbican_p11_config << EOF
         [p11_crypto_plugin]
         library_path = /usr/lib64/pkcs11/libsofthsm2.so
-        token_serial_number = $(softhsm2-util --show-slots | grep -m 1 Slot | sed -e "s/^Slot //") 
+        slot_id = $(softhsm2-util --show-slots | grep -m 1 Slot | sed -e "s/^Slot //") 
         login = ${SOFTHSM_USERPIN}
         mkek_label = 'softhsm_mkek_0'
         mkek_length = 32
         hmac_label = 'softhsm_hmac_0'
-        slot_id = $(softhsm2-util --show-slots | grep -m 1 "Serial number:" | sed -e "s/^.*Serial number:\s*//")
+        token_serial_number = $(softhsm2-util --show-slots | grep -m 1 "Serial number:" | sed -e "s/^.*Serial number:\s*//")
         encryption_mechanism = CKM_AES_CBC
         hmac_key_type = CKK_GENERIC_SECRET
         hmac_keygen_mechanism = CKM_GENERIC_SECRET_KEY_GEN 
@@ -114,12 +114,11 @@ services:
         export OS_AUTH_URL=http://barbican_keystone:5000/v3
         export OS_IDENTITY_API_VERSION=3
         EOF
-          
         source /etc/barbican/admin-openrc.sh
-        slot_id = $(softhsm2-util --show-slots | grep -m 1 "Serial number:" | sed -e "s/^.*Serial number:\s*//")
-        token_serial_number = $(softhsm2-util --show-slots | grep -m 1 Slot | sed -e "s/^Slot //") 
-        openstack secret store --name "my-test-secret" --payload ThisIsAVerySecurePassword
-        openstack secret list
+        barbican-manage hsm gen_hmac --library-path /usr/lib64/pkcs11/libsofthsm2.so --passphrase ${SOFTHSM_USERPIN} --slot-id $(softhsm2-util --show-slots | grep -m 1 Slot | sed -e "s/^Slot //") --label softhsm_hmac_0
+        barbican-manage hsm gen_mkek --library-path /usr/lib64/pkcs11/libsofthsm2.so --passphrase ${SOFTHSM_USERPIN} --slot-id $(softhsm2-util --show-slots | grep -m 1 Slot | sed -e "s/^Slot //") --label softhsm_mkek_0
+        #openstack secret store --name "my-test-secret" --payload ThisIsAVerySecurePassword
+        #openstack secret list
         # openstack secret get <secret-href>
         tail -f /dev/null
 volumes:

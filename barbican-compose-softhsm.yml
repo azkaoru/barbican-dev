@@ -89,13 +89,18 @@ services:
   barbican-init:
     image: openstack/mybase:1.0
     container_name: barbican_client
+    environment:
+      SOFTHSM_USERPIN: userpin123
     depends_on:
       barbican:
         condition: service_healthy
+    volumes:
+      - softhsm_tokens_data:/var/lib/softhsm/tokens
     command:
       - /bin/bash
       - -c
       - |
+        set -x
         # Configure  for openstackclient
         cat > /etc/barbican/admin-openrc.sh << 'EOF'
         export OS_USERNAME=admin
@@ -111,6 +116,8 @@ services:
         EOF
           
         source /etc/barbican/admin-openrc.sh
+        slot_id = $(softhsm2-util --show-slots | grep -m 1 "Serial number:" | sed -e "s/^.*Serial number:\s*//")
+        token_serial_number = $(softhsm2-util --show-slots | grep -m 1 Slot | sed -e "s/^Slot //") 
         openstack secret store --name "my-test-secret" --payload ThisIsAVerySecurePassword
         openstack secret list
         # openstack secret get <secret-href>

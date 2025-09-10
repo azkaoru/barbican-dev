@@ -15,42 +15,34 @@ services:
       - -c
       - |
         set -x
-        if [ ! -f /var/lib/softhsm/config_finished ]; then
-            # init 
-            softhsm2-util --init-toke --slot $SOFTHSM_SLOT_ID  --label $SOFTHSM_TOKEN_LABEL --so-pin $SOFTHSM_SOPIN --pin $SOFTHSM_USERPIN
+        softhsm2-util --init-toke --slot $SOFTHSM_SLOT_ID  --label $SOFTHSM_TOKEN_LABEL --so-pin $SOFTHSM_SOPIN --pin $SOFTHSM_USERPIN
+        cat > /tmp/barbican_p11_config << EOF
+        [p11_crypto_plugin]
+        library_path = /usr/lib64/pkcs11/libsofthsm2.so
+        slot_id = $(softhsm2-util --show-slots | grep -m 1 Slot | sed -e "s/^Slot //") 
+        login = ${SOFTHSM_USERPIN}
+        mkek_label = 'softhsm_mkek_0'
+        mkek_length = 32
+        hmac_label = 'softhsm_hmac_0'
+        token_serial_number = $(softhsm2-util --show-slots | grep -m 1 "Serial number:" | sed -e "s/^.*Serial number:\s*//")
+        encryption_mechanism = CKM_AES_CBC
+        hmac_key_type = CKK_GENERIC_SECRET
+        hmac_keygen_mechanism = CKM_GENERIC_SECRET_KEY_GEN 
+        hmac_mechanism = CKM_SHA256_HMAC
+        key_wrap_mechanism = CKM_AES_KEY_WRAP_PAD
+        key_wrap_generate_iv = False
+        aes_gcm_generate_iv = true
 
-            cat > /tmp/barbican_p11_config << EOF
-            [p11_crypto_plugin]
-            library_path = /usr/lib64/pkcs11/libsofthsm2.so
-            slot_id = $(softhsm2-util --show-slots | grep -m 1 Slot | sed -e "s/^Slot //") 
-            login = ${SOFTHSM_USERPIN}
-            mkek_label = 'softhsm_mkek_0'
-            mkek_length = 32
-            hmac_label = 'softhsm_hmac_0'
-            token_serial_number = $(softhsm2-util --show-slots | grep -m 1 "Serial number:" | sed -e "s/^.*Serial number:\s*//")
-            encryption_mechanism = CKM_AES_CBC
-            hmac_key_type = CKK_GENERIC_SECRET
-            hmac_keygen_mechanism = CKM_GENERIC_SECRET_KEY_GEN 
-            hmac_mechanism = CKM_SHA256_HMAC
-            key_wrap_mechanism = CKM_AES_KEY_WRAP_PAD
-            key_wrap_generate_iv = False
-            aes_gcm_generate_iv = true
+        [secretstore]
+        enabled_secretstore_plugins = store_crypto
+        EOF
+        # p11_crypto_plugin設定追加
+        cat /tmp/barbican_p11_config >> /etc/barbican/barbican.conf
 
-            [secretstore]
-            enabled_secretstore_plugins = store_crypto
-            EOF
-
-            #初回 p11の設定は自動で追加するので、p11の設定あれば削除
-            sed -i '/# add-p11-config/,$d' /etc/barbican/barbican.conf
-            # p11の設定追加
-            cat /tmp/barbican_p11_config >> /etc/barbican/barbican.conf
-            # Initialize Keystone database
-            /bin/sh -c "barbican-manage db upgrade" barbican
-            touch /var/lib/softhsm/config_finished
-        fi
         useradd -r -s /bin/false barbican || true
         mkdir -p /etc/barbican /var/log/barbican /var/lib/barbican
         chown -R barbican:barbican /etc/barbican /var/log/barbican /var/lib/barbican
+
         # Configure Apache for Keystone
         cat > /etc/httpd/conf.d/wsgi-barbican.conf << 'EOF'
         Listen 9311
@@ -76,8 +68,7 @@ services:
         </VirtualHost>
 
         EOF
-        # Initialize Keystone database
-        #/bin/sh -c "barbican-manage db upgrade" barbican
+        /bin/sh -c "barbican-manage db upgrade" barbican
         # Start Apache
         /usr/sbin/httpd -D FOREGROUND
     volumes:
@@ -125,19 +116,16 @@ services:
         barbican-manage hsm gen_mkek --library-path /usr/lib64/pkcs11/libsofthsm2.so --passphrase ${SOFTHSM_USERPIN} --slot-id $(softhsm2-util --show-slots | grep -m 1 Slot | sed -e "s/^Slot //") --label softhsm_mkek_0
 
         #オーダーを作成することで、Barbicanで共通鍵を生成後、シークレットとして保存する。
-        openstack secret order create key  -b 256  -x 2026-08-12T12:00:00+00:00
+        openstack secret order create key  -b 256  -x 2026-08-12T12:00:00+00:00 -f value -c "Order href" > /tmp/order_href
         
         #作成されたOrderを確認
-        openstack secret order list
+        openstack secret order get $(cat /tmp/order_href )
 
+        #  OrderからSecret href取得
+        openstack secret order get  $(cat /tmp/order_href ) -f value -c "Secret href" > /tmp/secret_href
         #作成されたSecretを確認
-        openstack secret list
-
-        # Order href からSecret取得
-        openstack secret order get $(openstack secret order list -f value -c "Order href")
-
-        # Order href からSecret href取得
-        openstack secret order get $(openstack secret order list -f value -c "Order href") -f value -c "Secret href" > /tmp/secret_href
+        #openstack secret list
+        openstack secret get $(cat /tmp/secret_href )
 
         # Barbicanから作成したシークレット（共通鍵）をバイナリファイル（dataKey）としてダウンロード
         openstack secret get $(cat /tmp/secret_href)  --file /tmp/dataKey --payload_content_type application/octet-stream
@@ -145,14 +133,23 @@ services:
         echo "This is my password" > /tmp/password.txt
         #Barbicanから取得した共通鍵を使ってファイルを暗号化
         openssl enc -pbkdf2 -in /tmp/password.txt -out /tmp/encrypted-password.txt -e -aes256 -k fileb:///tmp/dataKey
-        rm -fr /tmp/dataKey
 
-        #Barbicanから作成したシークレット（共通鍵）をバイナリファイル（dataKey）としてダウンロード
-        openstack secret get $(cat /tmp/secret_href)  --file /tmp/testdataKey --payload_content_type application/octet-stream
 
         # Barbicanから取得した共通鍵を使ってファイルを復号化
-　　　  openssl enc -pbkdf2 -in /tmp/encrypted-password.txt -out /tmp/decrypted-password.txt -d -aes256 -k fileb:///tmp/testdataKey
- 
+        openssl enc -pbkdf2 -in /tmp/encrypted-password.txt -out /tmp/decrypted-password.txt -d -aes256 -k fileb:///tmp/dataKey
+
+        # confirm
+        cat /tmp/decrypted-password.txt
+        
+        rm -fr /tmp/dataKey
+        rm -fr /tmp/decrypted-password
+
+        #Barbicanから作成したシークレット（共通鍵）をバイナリファイル（dataKey）としてダウンロード
+        openstack secret get $(cat /tmp/secret_href)  --file /tmp/dataKey --payload_content_type application/octet-stream
+
+        # Barbicanから取得した共通鍵を使ってファイルを復号化
+        openssl enc -pbkdf2 -in /tmp/encrypted-password.txt -out /tmp/decrypted-password2.txt -d -aes256 -k fileb:///tmp/dataKey
+        cat /tmp/decrypted-password2.txt
         # openstack secret get <secret-href>
         tail -f /dev/null
 volumes:

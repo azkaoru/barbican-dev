@@ -40,7 +40,7 @@ keystone:
 # Start Barbican service
 barbican:
 	@echo "Starting Barbican service..."
-	podman-compose -f barbican-compose.yml up
+	podman-compose -f barbican-compose-softhsm.yml up
 
 # Clean up all services
 clean: clean-barbican clean-keystone clean-postgres
@@ -59,4 +59,5 @@ clean-keystone:
 # Clean up Barbican service
 clean-barbican:
 	@echo "Cleaning up Barbican service..."
-	podman-compose -f barbican-compose.yml down -v
+	podman-compose -f barbican-compose-softhsm.yml down -v
+	awk '/# p11-config-marker/ {print; exit} {print}' ./config/barbican.conf > ./config/barbican.conf.tmp && mv ./config/barbican.conf.tmp ./config/barbican.conf

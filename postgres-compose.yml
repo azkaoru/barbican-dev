@@ -3,48 +3,19 @@ version: '3.8'
 services:
   # Rename postgres to db to match the sample configuration
   db:
-    image: registry.redhat.io/rhel9/postgresql-15:latest
+    #image: registry.redhat.io/rhel9/postgresql-15:latest
+    image: docker.io/library/postgres:17.6
     container_name: barbican_postgres
     environment:
-      POSTGRESQL_USER: barbican
-      POSTGRESQL_PASSWORD: barbican
-      POSTGRESQL_DATABASE: barbican
-      POSTGRESQL_ADMIN_PASSWORD: admin123
+      POSTGRES_PASSWORD: postgres
     volumes:
-      - postgres_data:/var/lib/pgsql/data
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U barbican -d barbican"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
-
-  postgres-init:
-    image: registry.redhat.io/rhel9/postgresql-15:latest
-    container_name: barbican_postgres_init
-    #network_mode: host
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      POSTGRESQL_USER: barbican
-      POSTGRESQL_PASSWORD: barbican
-      POSTGRESQL_DATABASE: barbican
-      POSTGRESQL_ADMIN_PASSWORD: admin123
-      PGPASSWORD: admin123
-    volumes:
-      - ./init-db:/scripts
-    command:
-      - /bin/bash
-      - -c
-      - |
-        echo "Starting database initialization..."
-        echo "PostgreSQL is ready, running initialization scripts..."
-        psql -h barbican_postgres -U postgres -f /scripts/createdb.sql      
-        psql -h barbican_postgres -U postgres -d keystone -f /scripts/createuser.sql      
-        echo "Database initialization completed"
-    restart: "no"
-    ports:
-      - "5432:5432"
 volumes:
   postgres_data:

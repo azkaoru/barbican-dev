@@ -118,9 +118,22 @@ services:
         barbican-manage hsm gen_hmac --library-path /usr/lib64/pkcs11/libsofthsm2.so --passphrase ${SOFTHSM_USERPIN} --slot-id $(softhsm2-util --show-slots | grep -m 1 Slot | sed -e "s/^Slot //") --label softhsm_hmac_0
         barbican-manage hsm gen_mkek --library-path /usr/lib64/pkcs11/libsofthsm2.so --passphrase ${SOFTHSM_USERPIN} --slot-id $(softhsm2-util --show-slots | grep -m 1 Slot | sed -e "s/^Slot //") --label softhsm_mkek_0
         #
-        ORDER_HREF=$(openstack secret order create key  -b 256  -x 2026-07-12T12:00:00+00:00  -f value -c "Order href")
-        openstack secret order get $(openstack secret order create key  -b 256  -x 2026-07-12T12:00:00+00:00  -f value -c "Order href") -f value -c "Secret href"
+        #ORDER_HREF=$(openstack secret order create key  -b 256  -x 2026-07-12T12:00:00+00:00  -f value -c "Order href")
+        openstack secret order get $(openstack secret order create key  -b 256  -x 2026-07-12T12:00:00+00:00 -f value -c "Order href") -f value -c "Secret href" > /tmp/secret_href
+        # Barbicanから作成したシークレット（共通鍵）をバイナリファイル（dataKey）としてダウンロード
+        openstack secret get $(cat /tmp/secret_href)  --file /tmp/dataKey --payload_content_type application/octet-stream
+        #
+        echo "This is my password" > /tmp/password.txt
+        #Barbicanから取得した共通鍵を使ってファイルを暗号化
+        openssl enc -pbkdf2 -in /tmp/password.txt -out /tmp/encrypted-password.txt -e -aes256 -k fileb:///tmp/dataKey
+        rm -fr /tmp/dataKey
 
+        #Barbicanから作成したシークレット（共通鍵）をバイナリファイル（dataKey）としてダウンロード
+        openstack secret get $(cat /tmp/secret_href)  --file /tmp/testdataKey --payload_content_type application/octet-stream
+
+        # Barbicanから取得した共通鍵を使ってファイルを復号化
+　　　  openssl enc -pbkdf2 -in /tmp/encrypted-password.txt -out /tmp/decrypted-password.txt -d -aes256 -k fileb:///tmp/testdataKey
+ 
         # openstack secret get <secret-href>
         tail -f /dev/null
 volumes:

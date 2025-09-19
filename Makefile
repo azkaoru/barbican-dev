@@ -27,6 +27,10 @@ build-base:
 	@echo "Building base container image..."
 	cd container && buildah bud --format=docker -t openstack/mybase:1.0 .
 
+build-dev:
+	@echo "Building dev container image..."
+	cd container && buildah bud --format=docker -t openstack/mydev:1.0 -f Dockerfile.dev
+
 # Start PostgreSQL service
 postgres:
 	@echo "Starting PostgreSQL service..."
@@ -42,6 +46,13 @@ barbican:
 	@echo "Starting Barbican service..."
 	podman-compose -f barbican-compose-softhsm.yml up
 
+barbican-dev:
+	@echo "Starting Barbican dev service..."
+	podman-compose -f barbican-compose.dev.yml up
+
+barbican-rewrap:
+	@echo "Starting Barbican dev service..."
+	podman-compose -f barbican-compose.rewrap.yml up
 # Clean up all services
 clean: clean-barbican clean-keystone clean-postgres
 	@echo "All services cleaned up"
@@ -61,3 +72,12 @@ clean-barbican:
 	@echo "Cleaning up Barbican service..."
 	podman-compose -f barbican-compose-softhsm.yml down -v
 	awk '/# p11-config-marker/ {print; exit} {print}' ./config/barbican.conf > ./config/barbican.conf.tmp && mv ./config/barbican.conf.tmp ./config/barbican.conf
+
+clean-barbican-dev:
+	@echo "Cleaning up Barbican dev service..."
+	podman-compose -f barbican-compose.dev.yml down -v
+	awk '/# p11-config-marker/ {print; exit} {print}' ./config/barbican.conf > ./config/barbican.conf.tmp && mv ./config/barbican.conf.tmp ./config/barbican.conf
+
+db-clean-barbican:
+	podman exec -it barbican_postgres psql -U postgres postgres -c "DROP DATABASE barbican;"
+	podman exec -it barbican_postgres psql -U postgres postgres -c "CREATE DATABASE barbican;"

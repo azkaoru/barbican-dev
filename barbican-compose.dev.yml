@@ -4,9 +4,10 @@ services:
   barbican:
     #image: registry.redhat.io/ubi9/ubi:latest
     image: openstack/mydev:1.0
-    container_name: barbican_dev
+    container_name: barbican
     environment:
-      DEBUGPY_ENABLE: false
+      DEBUGPY_ENABLE_API: true
+      DEBUGPY_ENABLE_CMD: true
       DEV_REPO: https://github.com/azkaoru/barbican.git
       DEV_BRANCH: my-feature-branch
       SOFTHSM_USERPIN: userpin123
@@ -18,12 +19,15 @@ services:
       - /bin/bash
       - -c
       - |
-        git clone ${DEV_REPO} -b ${DEV_BRANCH} /root/barbican
-        cd /root/barbican
+        useradd -r -s /bin/false barbican || true
+        git clone ${DEV_REPO} -b ${DEV_BRANCH} /opt/barbican
+        usermod -d /opt/barbican barbican
+        cd /opt/barbican
         python3.9 -m pip install -r requirements.txt
         python3.9 -m pip install -r test-requirements.txt
         # install to /usr/local/lib/python3.9/site-packages/barbican
-        python3.9 setup.py install
+        #python3.9 setup.py install
+        python3.9 -m pip install -e .
  
         set -x
         softhsm2-util --init-toke --slot $SOFTHSM_SLOT_ID  --label $SOFTHSM_TOKEN_LABEL --so-pin $SOFTHSM_SOPIN --pin $SOFTHSM_USERPIN
@@ -51,8 +55,8 @@ services:
         cat /tmp/barbican_p11_config >> /etc/barbican/barbican.conf
 
         useradd -r -s /bin/false barbican || true
-        mkdir -p /etc/barbican /var/log/barbican /var/lib/barbican
-        chown -R barbican:barbican /etc/barbican /var/log/barbican /var/lib/barbican
+        mkdir -p /etc/barbican/vassals /var/log/barbican /var/lib/barbican
+        chown -R barbican:barbican /etc/barbican /var/log/barbican /var/lib/barbican /opt/barbican
 
         # Configure Apache for Keystone
         cat > /etc/httpd/conf.d/wsgi-barbican.conf << 'EOF'
@@ -66,12 +70,15 @@ services:
             CustomLog /var/log/barbican/barbican_access.log combined
 
             WSGIApplicationGroup %{GLOBAL}
-            WSGIDaemonProcess barbican-public processes=1 threads=1 user=barbican group=barbican display-name=%{GROUP} listen-backlog=100 connect-timeout=60 socket-timeout=120
+            #WSGIDaemonProcess barbican-public processes=1 threads=1 user=barbican group=barbican display-name=%{GROUP} listen-backlog=100 connect-timeout=60 socket-timeout=120
+            WSGIDaemonProcess barbican-public processes=1 threads=1 user=barbican group=barbican display-name=%{GROUP} listen-backlog=100 connect-timeout=600 socket-timeout=1200
             WSGIProcessGroup barbican-public
-            WSGIScriptAlias / "/usr/local/lib/python3.9/site-packages/barbican/api/app.wsgi"
+            #WSGIScriptAlias / "/usr/local/lib/python3.9/site-packages/barbican/api/app.wsgi"
+            WSGIScriptAlias / "/opt/barbican/barbican/api/app.wsgi"
             WSGIPassAuthorization On
 
-            <Directory /usr/local/lib/python3.9/site-packages/barbican/api>
+            #<Directory /usr/local/lib/python3.9/site-packages/barbican/api>
+            <Directory /opt/barbican/barbican/api>
                 #WSGIProcessGroup barbican-public
                 #WSGIApplicationGroup %{GLOBAL}
                 Require all granted
@@ -84,6 +91,10 @@ services:
         /usr/sbin/httpd -D FOREGROUND
     volumes:
       - ./config/barbican.conf:/etc/barbican/barbican.conf
+      - ./config-dev/api_audit_map.conf:/etc/barbican/api_audit_map.conf
+      - ./config-dev/barbican-api-paste.ini:/etc/barbican/barbican-api-paste.ini
+      - ./config-dev/gunicorn-config.py:/etc/barbican/gunicorn-config.py
+      - ./config-dev/vassals/barbican-api.ini:/etc/barbican/vassals/barbican-api.ini
       - softhsm_tokens_data:/var/lib/softhsm/tokens
     restart: unless-stopped
     healthcheck:
@@ -93,6 +104,7 @@ services:
       retries: 5
     ports:
       - "9311:9311"
+      - "5678:5678"
   barbican-init:
     image: openstack/mybase:1.0
     container_name: barbican_client

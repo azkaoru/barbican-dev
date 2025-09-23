@@ -1,4 +1,9 @@
-from openstack/mybase:1.0
+from rockylinux/rockylinux:9.6-ubi
+
+# Install EPEL repository first
+RUN dnf install -y epel-release && \
+    dnf install -y centos-release-openstack-epoxy && \
+    dnf install -y python3-mod_wsgi python3-openstackclient python3-psycopg2 nmap-ncat softhsm
 
 RUN dnf -y install python3.9-devel python3.9-pip git gcc iproute-tc
 RUN python3.9 -m pip install --upgrade pip setuptools wheel

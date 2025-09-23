@@ -24,3 +24,32 @@ git checkout -b my-feature-branch 20.0.0
 ```
 git push origin my-feature-branch
 ```
+
+
+# 正常動作するソフトウェアバージョン
+
+```
+centos-release-openstack-epoxy-1-1.el9.noarch
+python3-openstacksdk-4.4.0-1.el9s.noarch
+openstack-barbican-common-20.0.0-1.el9s.noarch
+python-openstackclient-lang-7.4.0-1.el9s.noarch
+python3-openstackclient-7.4.0-1.el9s.noarch
+openstack-barbican-api-20.0.0-1.el9s.noarch
+openstack-keystone-27.0.0-1.el9s.noarch
+```
+
+# barbican rpmインストールでインストールされるファイル
+
+```
+# rpm -ql openstack-barbican-api-20.0.0-1.el9s.noarch
+/etc/barbican/api_audit_map.conf
+/etc/barbican/barbican-api-paste.ini
+/etc/barbican/gunicorn-config.py
+/etc/barbican/vassals/barbican-api.ini
+/usr/bin/barbican-wsgi-api
+/usr/lib/systemd/system/openstack-barbican-api.service
+
+```
+
+
+

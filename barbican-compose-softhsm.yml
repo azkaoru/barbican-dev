@@ -10,12 +10,24 @@ services:
       SOFTHSM_SOPIN: sopin123
       SOFTHSM_TOKEN_LABEL: token0
       SOFTHSM_SLOT_ID: 0
+      SOFTHSM2_CONF: /etc/softhsm2.conf
     command:
       - /bin/bash
       - -c
       - |
         set -x
+        #
+        # Token初期化
+        #
         softhsm2-util --init-toke --slot $SOFTHSM_SLOT_ID  --label $SOFTHSM_TOKEN_LABEL --so-pin $SOFTHSM_SOPIN --pin $SOFTHSM_USERPIN
+        #
+        # 鍵作成 /var/lib/softhsm/tokensに書き込まれる
+        #
+        barbican-manage hsm gen_hmac --library-path /usr/lib64/pkcs11/libsofthsm2.so --passphrase ${SOFTHSM_USERPIN} --slot-id $(softhsm2-util --show-slots | grep -m 1 Slot | sed -e "s/^Slot //") --label softhsm_hmac_0
+        barbican-manage hsm gen_mkek --library-path /usr/lib64/pkcs11/libsofthsm2.so --passphrase ${SOFTHSM_USERPIN} --slot-id $(softhsm2-util --show-slots | grep -m 1 Slot | sed -e "s/^Slot //") --label softhsm_mkek_0
+        #
+        # Configure Barbican p11 crypto
+        #
         cat > /tmp/barbican_p11_config << EOF
         [p11_crypto_plugin]
         library_path = /usr/lib64/pkcs11/libsofthsm2.so
@@ -36,14 +48,21 @@ services:
         [secretstore]
         enabled_secretstore_plugins = store_crypto
         EOF
+        #
         # p11_crypto_plugin設定追加
+        #
         cat /tmp/barbican_p11_config >> /etc/barbican/barbican.conf
 
         useradd -r -s /bin/false barbican || true
         mkdir -p /etc/barbican /var/log/barbican /var/lib/barbican
         chown -R barbican:barbican /etc/barbican /var/log/barbican /var/lib/barbican
+        chmod 777 /var/lib/softhsm
+        chown -R root:ods /var/lib/softhsm
+        chmod -R 777 /var/lib/softhsm/tokens/`ls /var/lib/softhsm/tokens`
 
-        # Configure Apache for Keystone
+        #
+        # Configure Apache WSGI for Barbican
+        #
         cat > /etc/httpd/conf.d/wsgi-barbican.conf << 'EOF'
         Listen 9311
 
@@ -68,8 +87,13 @@ services:
         </VirtualHost>
 
         EOF
+        #
+        # barican db seup
+        #
         /bin/sh -c "barbican-manage db upgrade" barbican
+        #
         # Start Apache
+        #
         /usr/sbin/httpd -D FOREGROUND
     volumes:
       - ./config/barbican.conf:/etc/barbican/barbican.conf
@@ -87,10 +111,12 @@ services:
     container_name: barbican_client
     environment:
       SOFTHSM_USERPIN: userpin123
+      SOFTHSM2_CONF: /etc/softhsm2.conf
     depends_on:
       barbican:
         condition: service_healthy
     volumes:
+      #- ./config/barbican.conf:/etc/barbican/barbican.conf
       - softhsm_tokens_data:/var/lib/softhsm/tokens
     command:
       - /bin/bash
@@ -112,8 +138,6 @@ services:
         EOF
 
         source /etc/barbican/admin-openrc.sh
-        barbican-manage hsm gen_hmac --library-path /usr/lib64/pkcs11/libsofthsm2.so --passphrase ${SOFTHSM_USERPIN} --slot-id $(softhsm2-util --show-slots | grep -m 1 Slot | sed -e "s/^Slot //") --label softhsm_hmac_0
-        barbican-manage hsm gen_mkek --library-path /usr/lib64/pkcs11/libsofthsm2.so --passphrase ${SOFTHSM_USERPIN} --slot-id $(softhsm2-util --show-slots | grep -m 1 Slot | sed -e "s/^Slot //") --label softhsm_mkek_0
 
         #オーダーを作成することで、Barbicanで共通鍵を生成後、シークレットとして保存する。
         openstack secret order create key  -b 256  -x 2026-08-12T12:00:00+00:00 -f value -c "Order href" > /tmp/order_href

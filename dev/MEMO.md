@@ -51,5 +51,29 @@ openstack-keystone-27.0.0-1.el9s.noarch
 
 ```
 
+# rewrap テスト方法
 
+```
+make barbican-rewrap
+```
+
+barbicanコンテナ内で実施する場合
+
+```
+podman exec -it barbican sh
+```
+
+事前準備
+```
+barbican-manage hsm gen_hmac --library-path /usr/lib64/pkcs11/libsofthsm2.so --passphrase ${SOFTHSM_USERPIN} --slot-id $(softhsm2-util --show-slots | grep -m 1 Slot | sed -e "s/^Slot //") --label softhsm_hmac_1
+barbican-manage hsm gen_mkek --library-path /usr/lib64/pkcs11/libsofthsm2.so --passphrase ${SOFTHSM_USERPIN} --slot-id $(softhsm2-util --show-slots | grep -m 1 Slot | sed -e "s/^Slot //") --label softhsm_mkek_1
+sed 's/softhsm_hmac_0/softhsm_hmac_1/g' /etc/barbican/barbican.conf > /tmp/barbican1.conf
+sed 's/softhsm_mkek_0/softhsm_mkek_1/g' /tmp/barbican1.conf > /tmp/barbican2.conf
+```
+
+rewrap debug実行
+```
+export DEBUGPY_ENABLE_CMD=True
+barbican-manage --config-file /tmp/barbican2.conf hsm rewrap_pkek
+```
 

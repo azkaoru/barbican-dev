@@ -44,7 +44,17 @@ keystone:
 # Start Barbican service
 barbican:
 	@echo "Starting Barbican service..."
-	podman-compose -f barbican-compose-softhsm.yml up
+	podman-compose -f barbican-compose.yml up
+
+# Test Barbican encrypt & decrpyt
+barbican-test-enc:
+	@echo "Starting Test Barbican encrypt & decrypt..."
+	podman-compose -f barbican-compose-test-encrypt.yml up
+
+# Test Barbican cert sign & verify
+barbican-test-sign:
+	@echo "Starting Test Barbican cert sign & verify..."
+	podman-compose -f barbican-compose-test-sign.yml up
 
 barbican-dev:
 	@echo "Starting Barbican dev service..."
@@ -70,7 +80,7 @@ clean-keystone:
 # Clean up Barbican service
 clean-barbican:
 	@echo "Cleaning up Barbican service..."
-	podman-compose -f barbican-compose-softhsm.yml down -v
+	podman-compose -f barbican-compose.yml down -v
 	awk '/# p11-config-marker/ {print; exit} {print}' ./config/barbican.conf > ./config/barbican.conf.tmp && mv ./config/barbican.conf.tmp ./config/barbican.conf
 
 clean-barbican-dev:

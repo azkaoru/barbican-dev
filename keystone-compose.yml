@@ -102,6 +102,7 @@ services:
       - /bin/bash
       - -c
       - |
+        echo "--- Keystone Start Sucessful ---"
         set -x
         # Configure  for openstackclient
         cat > /etc/keystone/admin-openrc.sh << 'EOF'
@@ -135,6 +136,8 @@ services:
         openstack endpoint create --region RegionOne key-manager internal http://barbican:9311
         openstack endpoint create --region RegionOne key-manager admin http://barbican:9311
         openstack endpoint list
+        echo "--- Keystone Init Sucessful ---"
+
 volumes:
   fernet_keys_data:
 

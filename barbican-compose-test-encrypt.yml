@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  barbican-encrypt-test:
+    image: openstack/mybase:1.0
+    container_name: barbican_encrypt_test
+    environment:
+      SOFTHSM_USERPIN: userpin123
+      SOFTHSM2_CONF: /etc/softhsm2.conf
+    volumes:
+      - softhsm_tokens_data:/var/lib/softhsm/tokens
+    command:
+      - /bin/bash
+      - -c
+      - |
+
+        set -x
+
+        cat > /tmp/literal_to_binary.py << 'EOF'
+        import sys
+
+        def main():
+            data = sys.stdin.read()
+            value = eval(data)
+            sys.stdout.buffer.write(value)
+
+        if __name__ == "__main__":
+            main()
+        EOF
+
+        # Configure  for openstackclient
+        cat > /etc/barbican/admin-openrc.sh << 'EOF'
+        export OS_USERNAME=admin
+        export OS_PASSWORD=admin123
+        export OS_PROJECT_NAME=admin
+        export OS_TENANT_NAME=admin
+        export OS_USER_DOMAIN_NAME=Default
+        export OS_USER_DOMAIN_ID=default
+        export OS_PROJECT_DOMAIN_NAME=Default
+        export OS_PROJECT_DOMAIN_ID=default
+        export OS_AUTH_URL=http://barbican_keystone:5000/v3
+        export OS_IDENTITY_API_VERSION=3
+        EOF
+
+        source /etc/barbican/admin-openrc.sh
+
+        #オーダーを作成することで、Barbicanで共通鍵を生成後、シークレットとして保存する。
+        openstack secret order create key  -b 256  -x "$(TZ=Asia/Tokyo date -Iseconds -d "+1 year")" -f value -c "Order href" > /tmp/order_href
+
+        #作成されたOrderを確認
+        openstack secret order get $(cat /tmp/order_href )
+
+        #  OrderからSecret href取得
+        openstack secret order get  $(cat /tmp/order_href ) -f value -c "Secret href" > /tmp/secret_href
+        #作成されたSecretを確認
+        #openstack secret list
+        openstack secret get $(cat /tmp/secret_href )
+
+        echo "This is my password" > /tmp/password.txt
+
+        #Barbicanから取得した共通鍵を使ってファイルを暗号化
+        openssl enc -pbkdf2 -in /tmp/password.txt -out /tmp/encrypted-password.txt -e -aes256 -pass "pass:$(openstack secret get $(cat /tmp/secret_href)  -t application/octet-stream -p -f value | python /tmp/literal_to_binary.py | base64)"
+
+        # Barbicanから取得した共通鍵を使ってファイルを復号化
+        openssl enc -pbkdf2 -in /tmp/encrypted-password.txt -out /tmp/decrypted-password.txt -d -aes256 -pass "pass:$(openstack secret get $(cat /tmp/secret_href) -t application/octet-stream -p -f value | python /tmp/literal_to_binary.py | base64)"
+
+        # confirm
+        cat /tmp/decrypted-password.txt
+        diff /tmp/password.txt /tmp/decrypted-password.txt 
+        # tail -f /dev/null
+        #RSA秘密鍵を生成し、シークレットとして保存する
+        #openstack secret store -a RSA -b 4096 -m None -s private -t "application/octet-stream" -e base64 -p "$(openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -outform DER | base64)" -n private-key01 -x 
+volumes:
+  softhsm_tokens_data:

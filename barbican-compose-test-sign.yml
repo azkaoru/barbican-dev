@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  barbican-cert-sign-verify-test:
+    image: openstack/mybase:1.0
+    container_name: barbican_cert_sign_test
+    environment:
+      SOFTHSM_USERPIN: userpin123
+      SOFTHSM2_CONF: /etc/softhsm2.conf
+    volumes:
+      - softhsm_tokens_data:/var/lib/softhsm/tokens
+    command:
+      - /bin/bash
+      - -c
+      - |
+
+        set -x
+
+        cat > /tmp/literal_to_binary.py << 'EOF'
+        import sys
+
+        def main():
+            data = sys.stdin.read()
+            value = eval(data)
+            sys.stdout.buffer.write(value)
+
+        if __name__ == "__main__":
+            main()
+        EOF
+
+        # Configure  for openstackclient
+        cat > /etc/barbican/admin-openrc.sh << 'EOF'
+        export OS_USERNAME=admin
+        export OS_PASSWORD=admin123
+        export OS_PROJECT_NAME=admin
+        export OS_TENANT_NAME=admin
+        export OS_USER_DOMAIN_NAME=Default
+        export OS_USER_DOMAIN_ID=default
+        export OS_PROJECT_DOMAIN_NAME=Default
+        export OS_PROJECT_DOMAIN_ID=default
+        export OS_AUTH_URL=http://barbican_keystone:5000/v3
+        export OS_IDENTITY_API_VERSION=3
+        EOF
+
+        source /etc/barbican/admin-openrc.sh
+
+        #RSA秘密鍵を生成し、シークレットとして保存する
+        openstack secret store -a RSA -b 4096 -m None -s private -t "application/octet-stream" -e base64 -p "$(openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -outform DER | base64)" -n private-key01 -x "$(TZ=Asia/Tokyo date -Iseconds -d "+1 year")" -f value -c "Secret href" > /tmp/secret_href
+
+        #作成されたSecretを確認
+        cat /tmp/secret_href 
+        openstack secret get $(cat /tmp/secret_href )
+
+        #保存したRSA秘密鍵を取得後、RSA公開鍵を生成して、シークレットとして保存する
+        openstack secret store -a RSA -b 4096 -m None -s public -t "application/octet-stream" -e base64 -p "$(openstack secret get $(cat /tmp/secret_href) -t application/octet-stream -p -f value | python /tmp/literal_to_binary.py | openssl pkey -pubout -inform DER -outform DER | base64)" -n public-key01 -x "$(TZ=Asia/Tokyo date -Iseconds -d "+1 year")"  -f value -c "Secret href" > /tmp/secret2_href
+
+        #シークレットコンテナを作成し、下記出力例のStatus行に「ACTIVE」と出力されていることを確認する。
+        openstack secret container create -n rsaKeyPair01 --type rsa --secret  "private_key=$(cat /tmp/secret_href)" --secret "public_key=$(cat /tmp/secret2_href)" 
+
+        # 署名したいファイルの作成
+        echo "This is my message" > /tmp/message.txt
+
+        #Barbicanから秘密鍵を取得し、openssl dgstコマンドで署名する
+        openssl dgst -sha3-512 -sign <(openstack secret get $(cat /tmp/secret_href) -t application/octet-stream -p -f value --os-password admin123 | python /tmp/literal_to_binary.py) -out /tmp/signature.bin /tmp/message.txt
+
+        #Barbicanから公開鍵を取得し、openssl dgstコマンドで署名を検証して、"Verified OK"と出力されることを確認する
+        openssl dgst -sha3-512 -verify <(openstack secret get $(cat /tmp/secret2_href)  -t application/octet-stream -p -f value --os-password admin123 | python /tmp/literal_to_binary.py) -signature /tmp/signature.bin /tmp/message.txt
+
+        #tail -f /dev/null
+        
+volumes:
+  softhsm_tokens_data:

@@ -1,0 +1,8 @@
+# プレイブックに復号テストのタスクを含める
+- name: Test Vault Decryption
+  hosts: localhost
+  connection: local
+  tasks:
+    - name: Verify that the password was decrypted successfully
+      ansible.builtin.debug:
+        msg: "Vault password length: {{ ansible_ssh_password | length }}"

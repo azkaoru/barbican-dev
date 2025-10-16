@@ -1,0 +1,14 @@
+from openstack/mybase:1.0
+
+RUN dnf install -y \
+    ansible \
+    python3-pip \
+    python3-devel \
+    gcc \
+    && \
+    # OpenStackコレクションに必要なPythonモジュールをインストール
+    pip3 install --no-cache-dir openstacksdk \
+    # 必要に応じてOpenStack Ansible Collectionもインストール
+    # ansible-galaxy collection install openstack.cloud
+    && \
+    dnf clean all

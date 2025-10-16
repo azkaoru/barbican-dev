@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+  barbican-ansible-vault-test:
+    image: openstack/myans:1.0
+    container_name: barbican_ansible_vault_test
+    environment:
+      SOFTHSM_USERPIN: userpin123
+      SOFTHSM2_CONF: /etc/softhsm2.conf
+      OS_PASSWORD: admin123
+    volumes:
+      - ./ansible-sample-project:/home/ansible/sample-project
+      - softhsm_tokens_data:/var/lib/softhsm/tokens
+    command:
+      - /bin/bash
+      - -c
+      - |
+
+        set -x
+
+        # Configure  for openstackclient
+        cat > /etc/barbican/admin-openrc.sh << 'EOF'
+        export OS_USERNAME=admin
+        export OS_PROJECT_NAME=admin
+        export OS_TENANT_NAME=admin
+        export OS_USER_DOMAIN_NAME=Default
+        export OS_USER_DOMAIN_ID=default
+        export OS_PROJECT_DOMAIN_NAME=Default
+        export OS_PROJECT_DOMAIN_ID=default
+        export OS_AUTH_URL=http://barbican_keystone:5000/v3
+        export OS_IDENTITY_API_VERSION=3
+        EOF
+
+        source /etc/barbican/admin-openrc.sh
+
+        #オーダーを作成することで、Barbicanで共通鍵を生成後、シークレットとして保存する。
+        openstack secret order create key  -b 256  -x "$(TZ=Asia/Tokyo date -Iseconds -d "+1 year")" -f value -c "Order href" > /tmp/order_href
+
+        #作成されたOrderを確認
+        openstack secret order get $(cat /tmp/order_href )
+
+        #  OrderからSecret href取得
+        openstack secret order get  $(cat /tmp/order_href ) -f value -c "Secret href" > /tmp/secret_href
+        #作成されたSecretを確認
+        #openstack secret list
+        openstack secret get $(cat /tmp/secret_href )
+
+        cat > /tmp/secret.sh << EOF
+        #!/bin/sh
+        
+        source /etc/barbican/admin-openrc.sh
+
+        # openstack secret get で取得したバイト文字列リテラルをバイナリに変換して出力
+        openstack secret get $(cat /tmp/secret_href) -f value -t application/octet-stream -p --os-password "${OS_PASSWORD}" | python3 -c "import sys; sys.stdout.buffer.write(eval(sys.stdin.read()))"
+        
+        EOF
+        chmod +x /tmp/secret.sh # 実行権限付与
+
+        # コンテナ内の作業ディレクトリに移動
+        cd /home/ansible/sample-project
+
+        # ==========================================================
+        # Ansible Vaultによる変数の暗号化
+        # ==========================================================
+        # 平文のパスワードを暗号化,ホスト側で作成した平文のall.ymlを読み込み、ansible_ssh_passwordの値を抽出,/tmp/secret.shで取得した鍵を利用して、暗号化する。
+        echo -n "$(grep 'ansible_ssh_password:' inventory/group_vars/all.yml | cut -d ':' -f 2 | tr -d '[:space:]')" | ansible-vault encrypt_string --stdin-name ansible_ssh_password --vault-id @/tmp/secret.sh | tail -n +2 > /tmp/encrypt_string
+
+        # all.yml を作成
+        # 暗号化された内容で inventory/group_vars/all.yml を更新
+        cat > inventory/group_vars/all.yml <<EOF
+        ---
+        ansible_user: root
+        ansible_ssh_password: !vault |
+        $(cat /tmp/encrypt_string | sed 's/^/  /')
+        ansible_port: 22 
+        EOF
+        cat inventory/group_vars/all.yml
+        # 
+        #暗号化されたansible_ssh_password変数を復号できるか確認
+        ansible localhost -m ansible.builtin.debug -a var=ansible_ssh_password -e @inventory/group_vars/all.yml --vault-id @/tmp/secret.sh
+        #tail -f /dev/null
+
+volumes:
+  softhsm_tokens_data:

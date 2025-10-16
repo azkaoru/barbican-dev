@@ -31,6 +31,10 @@ build-dev:
 	@echo "Building dev container image..."
 	cd container && buildah bud --format=docker -t openstack/mydev:1.0 -f Dockerfile.dev
 
+build-ans:
+	@echo "Building ansible container image..."
+	cd container && buildah bud --format=docker -t openstack/myans:1.0 -f Dockerfile.ans
+
 # Start PostgreSQL service
 postgres:
 	@echo "Starting PostgreSQL service..."
@@ -56,6 +60,13 @@ barbican-test-sign:
 	@echo "Starting Test Barbican cert sign & verify..."
 	podman-compose -f barbican-compose-test-sign.yml up
 
+# Test Barbican ansible vault
+barbican-test-vault:
+	@echo "Starting Test Barbican ansible vault..."
+	rm ansible-sample-project/inventory/group_vars/all.yml
+	cp ansible-sample-project/inventory/group_vars/all.yml.org ansible-sample-project/inventory/group_vars/all.yml
+	podman-compose -f barbican-compose-test-vault.yml up
+
 barbican-dev:
 	@echo "Starting Barbican dev service..."
 	podman-compose -f barbican-compose.dev.yml up
@@ -63,6 +74,7 @@ barbican-dev:
 barbican-rewrap:
 	@echo "Starting Barbican dev service..."
 	podman-compose -f barbican-compose.rewrap.yml up
+
 # Clean up all services
 clean: clean-barbican clean-keystone clean-postgres
 	@echo "All services cleaned up"

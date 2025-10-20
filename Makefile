@@ -67,6 +67,11 @@ barbican-test-vault:
 	cp ansible-sample-project/inventory/group_vars/all.yml.org ansible-sample-project/inventory/group_vars/all.yml
 	podman-compose -f barbican-compose-test-vault.yml up
 
+# Test Barbican rewrap
+barbican-test-rewrap:
+	@echo "Starting Test Barbican rewrap..."
+	podman-compose -f barbican-compose-test-rewrap.yml up
+
 barbican-dev:
 	@echo "Starting Barbican dev service..."
 	podman-compose -f barbican-compose.dev.yml up

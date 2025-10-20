@@ -63,7 +63,7 @@ barbican-test-sign:
 # Test Barbican ansible vault
 barbican-test-vault:
 	@echo "Starting Test Barbican ansible vault..."
-	rm ansible-sample-project/inventory/group_vars/all.yml
+	#rm ansible-sample-project/inventory/group_vars/all.yml
 	cp ansible-sample-project/inventory/group_vars/all.yml.org ansible-sample-project/inventory/group_vars/all.yml
 	podman-compose -f barbican-compose-test-vault.yml up
 

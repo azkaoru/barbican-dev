@@ -74,7 +74,7 @@ barbican-test-rewrap:
 
 barbican-dev:
 	@echo "Starting Barbican dev service..."
-	podman-compose -f barbican-compose.dev.yml up
+	podman-compose -f barbican-compose-dev.yml up
 
 barbican-rewrap:
 	@echo "Starting Barbican dev service..."
@@ -102,7 +102,7 @@ clean-barbican:
 
 clean-barbican-dev:
 	@echo "Cleaning up Barbican dev service..."
-	podman-compose -f barbican-compose.dev.yml down -v
+	podman-compose -f barbican-compose-dev.yml down -v
 	awk '/# p11-config-marker/ {print; exit} {print}' ./config/barbican.conf > ./config/barbican.conf.tmp && mv ./config/barbican.conf.tmp ./config/barbican.conf
 
 db-clean-barbican:

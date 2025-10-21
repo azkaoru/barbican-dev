@@ -6,7 +6,7 @@ RUN dnf install -y epel-release && \
     dnf install -y python3-mod_wsgi python3-openstackclient python3-psycopg2 nmap-ncat softhsm procps-ng
 
 # /var/lib/softhsmの権限がods:odsのため、barbican ユーザーを ods グループに追加
-RUN usermod -aG ods barbican
+#RUN usermod -aG ods barbican
 
 RUN dnf -y install python3.9-devel python3.9-pip git gcc iproute-tc
 RUN python3.9 -m pip install --upgrade pip setuptools wheel

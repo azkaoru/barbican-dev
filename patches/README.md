@@ -8,6 +8,8 @@
 git apply enable-debugpy.patch
 ```
 
+
+
 ## install debugpy
 debugpyをインストールする。
 
@@ -43,4 +45,10 @@ opendev
 git clone https://opendev.org/openstack/barbican.git
 cd barbican
 git checkout 20.0.0
+```
+
+patch apply
+```
+# cd barbican/cmd
+# patch -p0 < /root/pkcs11_kek_rewrap.patch
 ```

@@ -1,18 +1,17 @@
+## Reproduction Environment
 
-## 再現環境
+We are using the following environment to integrate Barbican's PKCS#11 plugin with SoftHSM2 for HSM operations.
 
-我々は以下の環境で、BarbicanのPKCS#11プラグインを使用し、SoftHSM2を用いたHSM連携を行っている。
+• OS: Rocky Linux 9.6
+• OpenStack Barbican: 22.0.0
+• OpenStack Keystone: 27.0.0
+• SoftHSM2: 2.6.1
 
-- OS: Rocky Linux 9.6
-- OpenStack Barbican: 22.0.0
-- OpenStack Keystone: 27.0.0
-- SoftHSM2: 2.6.1
+## Problem Summary
 
-## 問題の概要
+When using Barbican's PKCS#11 plugin to integrate with SoftHSM2, key generation and storage work normally, but the key rewrap operation fails. Specifically, the following error message is logged.
 
-BarbicanのPKCS#11プラグインを使用してSoftHSM2と連携する際、鍵の生成と保存は正常に行われるが、鍵の再ラップ（rewrap）操作が失敗する問題が発生している。具体的には、以下のエラーメッセージがログに記録される。
-
-```
+``` sh
 # barbican-manage  hsm rewrap_pkek
 2025-10-24 05:34:31.951 273 DEBUG barbican.plugin.crypto.pkcs11 [-] Slot 1483686139: label: token0 sn: 6bd6aa93d86f40fb _get_slot_id /usr/lib/python3.9/site-packages/barbican/plugin/crypto/pkcs11.py:542
 2025-10-24 05:34:31.951 273 DEBUG barbican.plugin.crypto.pkcs11 [-] Slot 1: label:  sn:  _get_slot_id /usr/lib/python3.9/site-packages/barbican/plugin/crypto/pkcs11.py:542
@@ -34,14 +33,14 @@ Traceback (most recent call last):
 TypeError: argument should be a bytes-like object or ASCII string, not 'NoneType'
 ```
 
-設定ファイルの内容は以下の通りである。注目すべきパラメータは `[p11_crypto_plugin]` セクション内の `key_wrap_generate_iv` で、これは `False` に設定されている。
+The configuration file contents are as follows. The notable parameter is key_wrap_generate_iv in the [p11_crypto_plugin] section, which is set to False.
 
-```
+``` sh
 # cat /etc/barbican/barbican.conf
 [DEFAULT]
 host_href =
 
-log_level = DEBUG 
+log_level = DEBUG
 default_log_levels = barbican=DEBUG, sqlalchemy=WARN
 
 [audit_middleware_notifications]
@@ -84,14 +83,13 @@ aes_gcm_generate_iv = true
 enabled_secretstore_plugins = store_crypto
 ```
 
-key_wrap_generate_iv を False で、再ラップ操作を行うと、`TypeError: argument should be a bytes-like object or ASCII string, not 'NoneType'` のエラーが発生する。
+When key_wrap_generate_iv is set to False and a rewrap operation is performed, the error `TypeError: argument should be a bytes-like object or ASCII string, not 'NoneType'`  occurs.
 
+## Reproduction Steps
 
-## 再現手順
+New key creation
 
-鍵の作成
-
-```
+``` sh
 #barbican-manage hsm gen_hmac --library-path /usr/lib64/pkcs11/libsofthsm2.so --passphrase ${SOFTHSM_USERPIN} --slot-id $(softhsm2-util --show-slots | grep -m 1 Slot | sed -e "s/^Slot //") --label softhsm_hmac_new
 2025-10-24 05:20:42.056 211 DEBUG barbican.plugin.crypto.pkcs11 [-] Slot 1483686139: label: token0 sn: 6bd6aa93d86f40fb _get_slot_id /usr/lib/python3.9/site-packages/barbican/plugin/crypto/pkcs11.py:542
 2025-10-24 05:20:42.056 211 DEBUG barbican.plugin.crypto.pkcs11 [-] Slot 1: label:  sn:  _get_slot_id /usr/lib/python3.9/site-packages/barbican/plugin/crypto/pkcs11.py:542
@@ -109,66 +107,16 @@ HMAC successfully generated!
 MKEK successfully generated!
 ```
 
-ラベルを新しいものに変更。
+Change the labels to new ones.
 
-```
-# sed -i 's/softhsm_hmac_old/softhsm_hmac_new/g' /etc/barbican/barbican.conf 
+``` sh
+# sed -i 's/softhsm_hmac_old/softhsm_hmac_new/g' /etc/barbican/barbican.conf
 # sed -i 's/softhsm_mkek_old/softhsm_mkek_new/g' /etc/barbican/barbican.conf
 ```
 
-設定ファイルの内容は以下の通りである。注目すべきパラメータは `[p11_crypto_plugin]` セクション内の `key_wrap_generate_iv` で、これは `False` に設定されている。
+When the key rewrap operation is executed, the following error message is displayed.
 
-```
-# cat /etc/barbican/barbican.conf
-[DEFAULT]
-host_href =
-
-log_level = DEBUG 
-default_log_levels = barbican=DEBUG, sqlalchemy=WARN
-
-[audit_middleware_notifications]
-driver = log
-
-[crypto]
-enabled_crypto_plugins = p11_crypto
-p11_crypto = barbican.plugin.crypto.p11_crypto.P11CryptoPlugin
-
-[database]
-connection = postgresql+psycopg2://barbican:barbican@barbican_postgres:5432/barbican
-
-[keystone_authtoken]
-auth_url = http://barbican_keystone:5000/v3
-www_authenticate_uri = http://barbican_keystone:5000/v3
-auth_type = password
-project_domain_id = default
-user_domain_id = default
-project_name = service
-username = barbican
-password = barbican
-
-[p11_crypto_plugin]
-library_path = /usr/lib64/pkcs11/libsofthsm2.so
-token_serial_number = 6bd6aa93d86f40fb
-login = userpin123
-mkek_label = 'softhsm_mkek_new'
-mkek_length = 32
-hmac_label = 'softhsm_hmac_new'
-slot_id = 1483686139
-encryption_mechanism = CKM_AES_CBC
-hmac_key_type = CKK_GENERIC_SECRET
-hmac_keygen_mechanism = CKM_GENERIC_SECRET_KEY_GEN
-hmac_mechanism = CKM_SHA256_HMAC
-key_wrap_mechanism = CKM_AES_KEY_WRAP_PAD
-key_wrap_generate_iv = False
-aes_gcm_generate_iv = true
-
-[secretstore]
-enabled_secretstore_plugins = store_crypto
-```
-
-鍵の再ラップ（rewrap）操作を実行すると、以下のエラーメッセージが表示される。
-
-```
+``` sh
 # barbican-manage  hsm rewrap_pkek
 2025-10-24 05:34:31.951 273 DEBUG barbican.plugin.crypto.pkcs11 [-] Slot 1483686139: label: token0 sn: 6bd6aa93d86f40fb _get_slot_id /usr/lib/python3.9/site-packages/barbican/plugin/crypto/pkcs11.py:542
 2025-10-24 05:34:31.951 273 DEBUG barbican.plugin.crypto.pkcs11 [-] Slot 1: label:  sn:  _get_slot_id /usr/lib/python3.9/site-packages/barbican/plugin/crypto/pkcs11.py:542

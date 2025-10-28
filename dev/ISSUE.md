@@ -10,10 +10,10 @@
 
 ## 問題の概要
 
-BarbicanのPKCS#11プラグインを使用してSoftHSM2と連携する際、鍵の生成と保存は正常に行われるが、鍵の再ラップ（rewrap）操作が失敗する問題が発生している。具体的には、以下のエラーメッセージがログに記録される。
+BarbicanのPKCS#11プラグインを使用した鍵のリラップ（rewrap）処理でTypeErrorが発生する。具体的には、 `barbican-manage hsm rewrap_pkek` で以下のエラーメッセージがログに記録される。
 
 ```
-# barbican-manage  hsm rewrap_pkek
+# barbican-manage hsm rewrap_pkek
 2025-10-24 05:34:31.951 273 DEBUG barbican.plugin.crypto.pkcs11 [-] Slot 1483686139: label: token0 sn: 6bd6aa93d86f40fb _get_slot_id /usr/lib/python3.9/site-packages/barbican/plugin/crypto/pkcs11.py:542
 2025-10-24 05:34:31.951 273 DEBUG barbican.plugin.crypto.pkcs11 [-] Slot 1: label:  sn:  _get_slot_id /usr/lib/python3.9/site-packages/barbican/plugin/crypto/pkcs11.py:542
 2025-10-24 05:34:31.951 273 DEBUG barbican.plugin.crypto.pkcs11 [-] Found token sn: 6bd6aa93d86f40fb in slot 1483686139 _get_slot_id /usr/lib/python3.9/site-packages/barbican/plugin/crypto/pkcs11.py:552
@@ -86,6 +86,16 @@ enabled_secretstore_plugins = store_crypto
 
 key_wrap_generate_iv を False で、再ラップ操作を行うと、`TypeError: argument should be a bytes-like object or ASCII string, not 'NoneType'` のエラーが発生する。
 
+問題の箇所は以下であり、meta_dict['iv'] が None となる場合、None が base64.b64decode() に渡されてしまい、TypeErrorが発生している。
+
+https://opendev.org/openstack/barbican/src/commit/25ef5677a674088bfb433ab39df3a75ac7b3cf8f/barbican/cmd/pkcs11_kek_rewrap.py#L87
+
+## 期待される動作
+
+key_wrap_generate_iv が False に設定されている場合でも、鍵のリラップ（rewrap）処理が正常に完了し、TypeErrorが発生しないこと。
+
+SoftHSM2(/usr/lib64/pkcs11/libsofthsm2.so)を利用する場合、初期化ベクトルを設定しなくても鍵のリラップが可能である。そのため、Barbicanは初期化ベクトル生成が無効化されている場合を考慮し、適切に処理を行う必要がある。
+
 
 ## 再現手順
 
@@ -116,7 +126,7 @@ MKEK successfully generated!
 # sed -i 's/softhsm_mkek_old/softhsm_mkek_new/g' /etc/barbican/barbican.conf
 ```
 
-設定ファイルの内容は以下の通りである。注目すべきパラメータは `[p11_crypto_plugin]` セクション内の `key_wrap_generate_iv` で、これは `False` に設定されている。
+設定ファイルの内容は以下の通りである。
 
 ```
 # cat /etc/barbican/barbican.conf
@@ -166,10 +176,10 @@ aes_gcm_generate_iv = true
 enabled_secretstore_plugins = store_crypto
 ```
 
-鍵の再ラップ（rewrap）操作を実行すると、以下のエラーメッセージが表示される。
+鍵のリラップ（rewrap）操作を実行すると、以下のエラーメッセージが表示される。
 
 ```
-# barbican-manage  hsm rewrap_pkek
+# barbican-manage hsm rewrap_pkek
 2025-10-24 05:34:31.951 273 DEBUG barbican.plugin.crypto.pkcs11 [-] Slot 1483686139: label: token0 sn: 6bd6aa93d86f40fb _get_slot_id /usr/lib/python3.9/site-packages/barbican/plugin/crypto/pkcs11.py:542
 2025-10-24 05:34:31.951 273 DEBUG barbican.plugin.crypto.pkcs11 [-] Slot 1: label:  sn:  _get_slot_id /usr/lib/python3.9/site-packages/barbican/plugin/crypto/pkcs11.py:542
 2025-10-24 05:34:31.951 273 DEBUG barbican.plugin.crypto.pkcs11 [-] Found token sn: 6bd6aa93d86f40fb in slot 1483686139 _get_slot_id /usr/lib/python3.9/site-packages/barbican/plugin/crypto/pkcs11.py:552

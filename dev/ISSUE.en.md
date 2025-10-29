@@ -28,11 +28,7 @@ Barbican should handle the potential absence of the IV when the `key_wrap_genera
 ### **Steps to Reproduce**
 
 1. **Environment Setup**  
-   Use the PKCS#11 plugin with SoftHSM2, ensuring the following environment is established:
-   - OS: Rocky Linux 9.6  
-   - OpenStack Barbican: 22.0.0  
-   - OpenStack Keystone: 27.0.0  
-   - SoftHSM2: 2.6.1  
+   Use the PKCS#11 plugin with SoftHSM2
 
 2. **Configure Barbican**  
    Ensure `key_wrap_generate_iv` is set to `False` in `/etc/barbican/barbican.conf`:
@@ -49,7 +45,6 @@ Barbican should handle the potential absence of the IV when the `key_wrap_genera
 
    ```bash
    barbican-manage hsm gen_hmac --library-path /usr/lib64/pkcs11/libsofthsm2.so --passphrase ${SOFTHSM_USERPIN} --slot-id $(softhsm2-util --show-slots | grep -m 1 Slot | sed -e "s/^Slot //") --label softhsm_hmac_new
-
    barbican-manage hsm gen_mkek --library-path /usr/lib64/pkcs11/libsofthsm2.so --passphrase ${SOFTHSM_USERPIN} --slot-id $(softhsm2-util --show-slots | grep -m 1 Slot | sed -e "s/^Slot //") --label softhsm_mkek_new
    ```
 

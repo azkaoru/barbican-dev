@@ -1,26 +1,80 @@
-## Reproduction Environment
+# Bug 
 
-We are using the following environment to integrate Barbican's PKCS#11 plugin with SoftHSM2 for HSM operations.
+KEK rewrap (barbican-manage hsm rewrap_pkek) fails with TypeError when key_wrap_generate_iv=False (PKCS#11)
 
-• OS: Rocky Linux 9.6
-• OpenStack Barbican: 22.0.0
-• OpenStack Keystone: 27.0.0
-• SoftHSM2: 2.6.1
+## **Bug Description**
 
-## Problem Summary
+**Hello Barbican team,**
 
-When using Barbican's PKCS#11 plugin to integrate with SoftHSM2, key generation and storage work normally, but the key rewrap operation fails. Specifically, the following error message is logged.
+First of all, thank you for your great work on Barbican.  
+This is my first time reporting an issue here, and I hope the following information helps improve the project.
 
-``` sh
-# barbican-manage  hsm rewrap_pkek
+---
+
+### **Summary**
+The `barbican-manage hsm rewrap_pkek` command fails with a `TypeError` when the `[p11_crypto_plugin] key_wrap_generate_iv` option is set to `False` in `barbican.conf`.  
+This issue prevents successful rewrapping of Project KEKs (PKEKs).
+
+The traceback shows that the IV (initialization vector) is retrieved as `None` from `meta_dict['iv']` and then passed directly to `base64.b64decode()`, which expects a bytes-like object or ASCII string, resulting in the error.
+
+https://opendev.org/openstack/barbican/src/tag/20.0.0/barbican/cmd/pkcs11_kek_rewrap.py#L87
+
+When using SoftHSMv2 with PKCS#11 mechanisms such as CKM_AES_KEY_WRAP_PAD (as configured), wrapping can be performed without using an initialization vector.
+
+Barbican should handle the potential absence of the IV when the `key_wrap_generate_iv` configuration option is disabled.
+
+---
+
+### **Steps to Reproduce**
+
+1. **Environment Setup**  
+   Use the PKCS#11 plugin with SoftHSM2, ensuring the following environment is established:
+   - OS: Rocky Linux 9.6  
+   - OpenStack Barbican: 22.0.0  
+   - OpenStack Keystone: 27.0.0  
+   - SoftHSM2: 2.6.1  
+
+2. **Configure Barbican**  
+   Ensure `key_wrap_generate_iv` is set to `False` in `/etc/barbican/barbican.conf`:
+
+   ```ini
+   [p11_crypto_plugin]
+   # ... other settings ...
+   key_wrap_mechanism = CKM_AES_KEY_WRAP_PAD
+   key_wrap_generate_iv = False
+
+   ```
+
+3. **Generate new HMAC and MKEK**
+
+   ```bash
+   barbican-manage hsm gen_hmac --library-path /usr/lib64/pkcs11/libsofthsm2.so --passphrase ${SOFTHSM_USERPIN} --slot-id $(softhsm2-util --show-slots | grep -m 1 Slot | sed -e "s/^Slot //") --label softhsm_hmac_new
+
+   barbican-manage hsm gen_mkek --library-path /usr/lib64/pkcs11/libsofthsm2.so --passphrase ${SOFTHSM_USERPIN} --slot-id $(softhsm2-util --show-slots | grep -m 1 Slot | sed -e "s/^Slot //") --label softhsm_mkek_new
+   ```
+
+4. **Change the labels to new ones**
+
+   ```bash
+   sed -i 's/softhsm_hmac_old/softhsm_hmac_new/g' /etc/barbican/barbican.conf
+   sed -i 's/softhsm_mkek_old/softhsm_mkek_new/g' /etc/barbican/barbican.conf
+   ```
+
+5. **Execute KEK Rewrap**
+
+   ```bash
+   barbican-manage hsm rewrap_pkek
+   ```
+
+---
+
+### **Actual Result**
+The process fails with the following traceback (excerpt):
+
+```
+# barbican-manage hsm rewrap_pkek
 2025-10-24 05:34:31.951 273 DEBUG barbican.plugin.crypto.pkcs11 [-] Slot 1483686139: label: token0 sn: 6bd6aa93d86f40fb _get_slot_id /usr/lib/python3.9/site-packages/barbican/plugin/crypto/pkcs11.py:542
-2025-10-24 05:34:31.951 273 DEBUG barbican.plugin.crypto.pkcs11 [-] Slot 1: label:  sn:  _get_slot_id /usr/lib/python3.9/site-packages/barbican/plugin/crypto/pkcs11.py:542
-2025-10-24 05:34:31.951 273 DEBUG barbican.plugin.crypto.pkcs11 [-] Found token sn: 6bd6aa93d86f40fb in slot 1483686139 _get_slot_id /usr/lib/python3.9/site-packages/barbican/plugin/crypto/pkcs11.py:552
-2025-10-24 05:34:31.952 273 WARNING barbican.plugin.crypto.pkcs11 [-] Ignoring slot_id: 1483686139 from barbican.conf
-2025-10-24 05:34:31.962 273 DEBUG barbican.plugin.crypto.pkcs11 [-] Connected to PCKS#11 Token in Slot 1483686139 __init__ /usr/lib/python3.9/site-packages/barbican/plugin/crypto/pkcs11.py:506
-Retrieving all available projects
-Retrieving KEKs for Project 06399ef3-264d-414e-bce2-a4027b129be8
-Error occurred! SQLAlchemy automatically rolled-back the transaction
+...
 Traceback (most recent call last):
   File "/usr/lib/python3.9/site-packages/barbican/cmd/kek_rewrap.py", line 73, in execute
     self.rewrap_kek(project, kek)
@@ -33,13 +87,38 @@ Traceback (most recent call last):
 TypeError: argument should be a bytes-like object or ASCII string, not 'NoneType'
 ```
 
-The configuration file contents are as follows. The notable parameter is key_wrap_generate_iv in the [p11_crypto_plugin] section, which is set to False.
+- The error points to line 87 in `barbican/cmd/pkcs11_kek_rewrap.py`:
 
-``` sh
-# cat /etc/barbican/barbican.conf
+  ```python
+  iv = base64.b64decode(meta_dict['iv'])
+  ```
+
+- This occurs because `meta_dict['iv']` is `None` when IV generation is disabled, and this `None` value is passed to `base64.b64decode()`.
+
+---
+
+### **Expected Result**
+The KEK rewrap operation should complete successfully without raising a `TypeError`, even when `key_wrap_generate_iv` is set to `False`.  
+Barbican should gracefully handle the case where the IV is absent in the metadata when the encryption mechanism (e.g., `CKM_AES_KEY_WRAP_PAD` via SoftHSM2) does not require it or when IV generation is explicitly disabled in the configuration.
+
+---
+
+### **Environment**
+- OS: Rocky Linux 9.6  
+- OpenStack Barbican: 22.0.0  
+- OpenStack Keystone: 27.0.0  
+- SoftHSM2: 2.6.1  
+
+---
+
+### **Additional Notes**
+- When `key_wrap_generate_iv=True`, the rewrap process succeeds.  
+- This may be related to handling of IV values during rewrap operations in the PKCS#11 plugin.  
+- The configuration file contents are as follows (notable parameter: `key_wrap_generate_iv=False` in the `[p11_crypto_plugin]` section):
+
+```ini
 [DEFAULT]
 host_href =
-
 log_level = DEBUG
 default_log_levels = barbican=DEBUG, sqlalchemy=WARN
 
@@ -83,57 +162,6 @@ aes_gcm_generate_iv = true
 enabled_secretstore_plugins = store_crypto
 ```
 
-When key_wrap_generate_iv is set to False and a rewrap operation is performed, the error `TypeError: argument should be a bytes-like object or ASCII string, not 'NoneType'`  occurs.
+---
 
-## Reproduction Steps
 
-New key creation
-
-``` sh
-#barbican-manage hsm gen_hmac --library-path /usr/lib64/pkcs11/libsofthsm2.so --passphrase ${SOFTHSM_USERPIN} --slot-id $(softhsm2-util --show-slots | grep -m 1 Slot | sed -e "s/^Slot //") --label softhsm_hmac_new
-2025-10-24 05:20:42.056 211 DEBUG barbican.plugin.crypto.pkcs11 [-] Slot 1483686139: label: token0 sn: 6bd6aa93d86f40fb _get_slot_id /usr/lib/python3.9/site-packages/barbican/plugin/crypto/pkcs11.py:542
-2025-10-24 05:20:42.056 211 DEBUG barbican.plugin.crypto.pkcs11 [-] Slot 1: label:  sn:  _get_slot_id /usr/lib/python3.9/site-packages/barbican/plugin/crypto/pkcs11.py:542
-2025-10-24 05:20:42.056 211 DEBUG barbican.plugin.crypto.pkcs11 [-] Found token sn: 6bd6aa93d86f40fb in slot 1483686139 _get_slot_id /usr/lib/python3.9/site-packages/barbican/plugin/crypto/pkcs11.py:552
-2025-10-24 05:20:42.056 211 WARNING barbican.plugin.crypto.pkcs11 [-] Ignoring slot_id: 1483686139 from barbican.conf
-2025-10-24 05:20:42.068 211 DEBUG barbican.plugin.crypto.pkcs11 [-] Connected to PCKS#11 Token in Slot 1483686139 __init__ /usr/lib/python3.9/site-packages/barbican/plugin/crypto/pkcs11.py:506
-HMAC successfully generated!
-
-# barbican-manage hsm gen_mkek --library-path /usr/lib64/pkcs11/libsofthsm2.so --passphrase ${SOFTHSM_USERPIN} --slot-id $(softhsm2-util --show-slots | grep -m 1 Slot | sed -e "s/^Slot //") --label softhsm_mkek_new
-2025-10-24 05:21:00.907 216 DEBUG barbican.plugin.crypto.pkcs11 [-] Slot 1483686139: label: token0 sn: 6bd6aa93d86f40fb _get_slot_id /usr/lib/python3.9/site-packages/barbican/plugin/crypto/pkcs11.py:542
-2025-10-24 05:21:00.907 216 DEBUG barbican.plugin.crypto.pkcs11 [-] Slot 1: label:  sn:  _get_slot_id /usr/lib/python3.9/site-packages/barbican/plugin/crypto/pkcs11.py:542
-2025-10-24 05:21:00.908 216 DEBUG barbican.plugin.crypto.pkcs11 [-] Found token sn: 6bd6aa93d86f40fb in slot 1483686139 _get_slot_id /usr/lib/python3.9/site-packages/barbican/plugin/crypto/pkcs11.py:552
-2025-10-24 05:21:00.908 216 WARNING barbican.plugin.crypto.pkcs11 [-] Ignoring slot_id: 1483686139 from barbican.conf
-2025-10-24 05:21:00.919 216 DEBUG barbican.plugin.crypto.pkcs11 [-] Connected to PCKS#11 Token in Slot 1483686139 __init__ /usr/lib/python3.9/site-packages/barbican/plugin/crypto/pkcs11.py:506
-MKEK successfully generated!
-```
-
-Change the labels to new ones.
-
-``` sh
-# sed -i 's/softhsm_hmac_old/softhsm_hmac_new/g' /etc/barbican/barbican.conf
-# sed -i 's/softhsm_mkek_old/softhsm_mkek_new/g' /etc/barbican/barbican.conf
-```
-
-When the key rewrap operation is executed, the following error message is displayed.
-
-``` sh
-# barbican-manage  hsm rewrap_pkek
-2025-10-24 05:34:31.951 273 DEBUG barbican.plugin.crypto.pkcs11 [-] Slot 1483686139: label: token0 sn: 6bd6aa93d86f40fb _get_slot_id /usr/lib/python3.9/site-packages/barbican/plugin/crypto/pkcs11.py:542
-2025-10-24 05:34:31.951 273 DEBUG barbican.plugin.crypto.pkcs11 [-] Slot 1: label:  sn:  _get_slot_id /usr/lib/python3.9/site-packages/barbican/plugin/crypto/pkcs11.py:542
-2025-10-24 05:34:31.951 273 DEBUG barbican.plugin.crypto.pkcs11 [-] Found token sn: 6bd6aa93d86f40fb in slot 1483686139 _get_slot_id /usr/lib/python3.9/site-packages/barbican/plugin/crypto/pkcs11.py:552
-2025-10-24 05:34:31.952 273 WARNING barbican.plugin.crypto.pkcs11 [-] Ignoring slot_id: 1483686139 from barbican.conf
-2025-10-24 05:34:31.962 273 DEBUG barbican.plugin.crypto.pkcs11 [-] Connected to PCKS#11 Token in Slot 1483686139 __init__ /usr/lib/python3.9/site-packages/barbican/plugin/crypto/pkcs11.py:506
-Retrieving all available projects
-Retrieving KEKs for Project 06399ef3-264d-414e-bce2-a4027b129be8
-Error occurred! SQLAlchemy automatically rolled-back the transaction
-Traceback (most recent call last):
-  File "/usr/lib/python3.9/site-packages/barbican/cmd/kek_rewrap.py", line 73, in execute
-    self.rewrap_kek(project, kek)
-  File "/usr/lib/python3.9/site-packages/barbican/cmd/pkcs11_kek_rewrap.py", line 87, in rewrap_kek
-    iv = base64.b64decode(meta_dict['iv'])
-  File "/usr/lib64/python3.9/base64.py", line 80, in b64decode
-    s = _bytes_from_decode_data(s)
-  File "/usr/lib64/python3.9/base64.py", line 45, in _bytes_from_decode_data
-    raise TypeError("argument should be a bytes-like object or ASCII "
-TypeError: argument should be a bytes-like object or ASCII string, not 'NoneType'
-```
